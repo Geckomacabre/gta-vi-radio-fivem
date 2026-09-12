@@ -19,6 +19,27 @@ Config.ArrowAutoRepeat = true   -- holding left/right keeps cycling
 Config.AutoRepeatDelay = 350    -- ms before auto repeat kicks in
 Config.AutoRepeatRate  = 120    -- ms between repeats
 
+-- Controller support.
+-- The wheel opens on D-pad Left, the same button the vanilla radio wheel uses.
+-- That button is also INPUT_CELLPHONE_LEFT and INPUT_WEAPON_WHEEL_PREV, so on a
+-- pad the stations are browsed with the right stick instead of the D-pad --
+-- again matching the vanilla wheel.
+Config.Controller = {
+    enabled    = true,
+    openButton = 'LLEFT_INDEX',  -- see docs.fivem.net -> PAD_DIGITALBUTTON
+    deadzone   = 0.5,            -- right stick travel before a change registers
+    lockCamera = true,           -- stop the right stick swinging the camera
+}
+
+-- While the wheel is open, Down (arrow key or D-pad) toggles mute. On a
+-- controller this is the only way to mute, since every pad button is already
+-- taken while driving.
+Config.MuteOnDownWhileOpen = true
+
+-- Permanently disable the vanilla radio controls (wheel, next/prev station) so
+-- the stock wheel cannot flash open on the same button.
+Config.DisableVanillaRadioControls = true
+
 -- Who may open the wheel.
 Config.DriverOnly      = true   -- false = passengers can change the radio too
 Config.AllowOnFoot     = false  -- true = also works with the mobile radio on foot

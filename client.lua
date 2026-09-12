@@ -21,6 +21,7 @@ local timeScaleNow  = 1.0
 local navHeldSince  = 0
 local navLastStep   = 0
 local navDir        = 0
+local stickLatched  = false  -- right stick must recentre between station changes
 
 -- helpers --------------------------------------------------------------------
 
@@ -31,6 +32,11 @@ local function currentVehicle()
     if veh == 0 then return 0 end
     if Config.DriverOnly and GetPedInVehicleSeat(veh, -1, false) ~= ped then return 0 end
     return veh
+end
+
+-- True when the player is on a controller rather than keyboard and mouse.
+local function padActive()
+    return Config.Controller.enabled and not IsUsingKeyboardAndMouse(2)
 end
 
 local function canUseRadio()
@@ -154,6 +160,7 @@ end
 local function closeWheel()
     if not wheelOpen then return end
     wheelOpen = false
+    stickLatched = false
     playSound(Config.CloseSound)
     pushState(false)
 
@@ -177,6 +184,11 @@ end
 RegisterCommand('+vi_radio', function() keyHeld = true end, false)
 RegisterCommand('-vi_radio', function() keyHeld = false end, false)
 RegisterKeyMapping('+vi_radio', 'VI Radio: hold to open the radio wheel', 'keyboard', Config.OpenKey)
+if Config.Controller.enabled then
+    -- '~!' registers an alternate default binding for the same command.
+    RegisterKeyMapping('~!+vi_radio', 'VI Radio: hold to open the radio wheel (pad)',
+        'PAD_DIGITALBUTTON', Config.Controller.openButton)
+end
 
 RegisterCommand('vi_radio_mute', function() toggleMute() end, false)
 RegisterKeyMapping('vi_radio_mute', 'VI Radio: mute / unmute the radio', 'keyboard', Config.MuteKey)
@@ -220,31 +232,57 @@ CreateThread(function()
                 DisableControlAction(0, 15, true)  -- WEAPON_WHEEL_PREV
             end
 
+            local pad = padActive()
+            local now = GetGameTimer()
+
+            if pad and Config.Controller.lockCamera then
+                DisableControlAction(0, 1, true)    -- LOOK_LR
+                DisableControlAction(0, 2, true)    -- LOOK_UD
+                DisableControlAction(0, 220, true)  -- SCRIPT_RIGHT_AXIS_X
+                DisableControlAction(0, 221, true)  -- SCRIPT_RIGHT_AXIS_Y
+            end
+
+            if Config.MuteOnDownWhileOpen and IsDisabledControlJustPressed(0, 173) then
+                toggleMute()
+            end
+
             -- navigation
-            local dir = 0
-            if IsDisabledControlJustPressed(0, 175) then dir = 1
-            elseif IsDisabledControlJustPressed(0, 174) then dir = -1
-            elseif Config.ScrollRadio and IsDisabledControlJustPressed(0, 14) then dir = 1
-            elseif Config.ScrollRadio and IsDisabledControlJustPressed(0, 15) then dir = -1 end
+            local dir, held = 0, 0
+
+            if pad then
+                -- D-pad Left is the open button, so the right stick browses.
+                local axis = GetDisabledControlNormal(0, 220)
+                if math.abs(axis) >= Config.Controller.deadzone then
+                    held = axis > 0 and 1 or -1
+                    if not stickLatched then
+                        dir = held
+                        stickLatched = true
+                    end
+                else
+                    stickLatched = false
+                end
+            else
+                stickLatched = false
+                if IsDisabledControlJustPressed(0, 175) then dir = 1
+                elseif IsDisabledControlJustPressed(0, 174) then dir = -1
+                elseif Config.ScrollRadio and IsDisabledControlJustPressed(0, 14) then dir = 1
+                elseif Config.ScrollRadio and IsDisabledControlJustPressed(0, 15) then dir = -1 end
+
+                if IsDisabledControlPressed(0, 175) then held = 1
+                elseif IsDisabledControlPressed(0, 174) then held = -1 end
+            end
 
             if dir ~= 0 then
                 step(dir)
-                navDir, navHeldSince, navLastStep = dir, GetGameTimer(), GetGameTimer()
-            elseif Config.ArrowAutoRepeat then
-                local held = 0
-                if IsDisabledControlPressed(0, 175) then held = 1
-                elseif IsDisabledControlPressed(0, 174) then held = -1 end
-
-                if held ~= 0 and held == navDir then
-                    local now = GetGameTimer()
-                    if now - navHeldSince > Config.AutoRepeatDelay
-                       and now - navLastStep > Config.AutoRepeatRate then
-                        step(held)
-                        navLastStep = now
-                    end
-                elseif held == 0 then
-                    navDir = 0
+                navDir, navHeldSince, navLastStep = dir, now, now
+            elseif Config.ArrowAutoRepeat and held ~= 0 and held == navDir then
+                if now - navHeldSince > Config.AutoRepeatDelay
+                   and now - navLastStep > Config.AutoRepeatRate then
+                    step(held)
+                    navLastStep = now
                 end
+            elseif held == 0 then
+                navDir = 0
             end
         end
 
@@ -279,12 +317,21 @@ CreateThread(function()
     end
 end)
 
--- vanilla radio HUD ----------------------------------------------------------
+-- vanilla radio HUD and controls ---------------------------------------------
+-- The stock wheel shares its button with ours on both keyboard (Q) and pad
+-- (D-pad Left), so it has to be suppressed every frame, not only while open.
 
 CreateThread(function()
-    if not Config.DisableRadioHUD then return end
+    if not Config.DisableRadioHUD and not Config.DisableVanillaRadioControls then return end
     while true do
-        HideHudComponentThisFrame(20)  -- HUD_RADIO_STATIONS
+        if Config.DisableRadioHUD then
+            HideHudComponentThisFrame(20)  -- HUD_RADIO_STATIONS
+        end
+        if Config.DisableVanillaRadioControls then
+            DisableControlAction(0, 85, true)  -- VEH_RADIO_WHEEL
+            DisableControlAction(0, 81, true)  -- VEH_NEXT_RADIO
+            DisableControlAction(0, 82, true)  -- VEH_PREV_RADIO
+        end
         Wait(0)
     end
 end)

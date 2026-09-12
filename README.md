@@ -23,13 +23,26 @@ Standalone and client-side — no framework dependency.
 
 ## Controls
 
-| Action | Default |
-| --- | --- |
-| Open the radio wheel | Hold **Q** |
-| Previous / next station | **←** / **→** (or the mouse wheel) |
-| Mute / unmute | **O** |
+| Action | Keyboard | Controller |
+| --- | --- | --- |
+| Open the radio wheel | Hold **Q** | Hold **D-pad Left** |
+| Previous / next station | **←** / **→**, or the mouse wheel | **Right stick** left / right |
+| Mute / unmute | **O**, or **↓** while the wheel is open | **D-pad Down** while the wheel is open |
 
-Players can rebind all three under **Settings → Key Bindings → FiveM**.
+Both open bindings can be rebound under **Settings → Key Bindings → FiveM**;
+they are two default bindings on the same command, so changing one leaves the
+other alone.
+
+Controller layout follows the vanilla radio wheel: D-pad Left opens it, the right
+stick picks a station. The D-pad cannot be used for browsing because D-pad Left
+is the open button (it is `INPUT_CELLPHONE_LEFT` and `INPUT_WEAPON_WHEEL_PREV`
+as well), so holding it would otherwise spam a station change every frame. While
+the wheel is open on a pad the camera is locked so the right stick does not swing
+the view — set `Config.Controller.lockCamera = false` if you would rather it did.
+
+Mute has no global controller binding because every pad button is already taken
+while driving; it lives on D-pad Down inside the wheel instead. Set
+`Config.Controller.enabled = false` to drop controller support entirely.
 
 ## Configuration
 
