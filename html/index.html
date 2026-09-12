@@ -8,7 +8,22 @@
 <body>
     <div id="radio" class="hidden">
         <div id="carousel">
-            <img id="icon-left" class="side-icon" src="icons/On_Demand.png" alt="">
+            <div id="icon-left" class="side-icon">
+                <!-- The original artwork is a two-position switch with the knob
+                     baked in at RADIO. Redrawn here so the knob can actually
+                     move; the PNG is still used when On Demand is disabled. -->
+                <div id="od-switch-graphic">
+                    <div class="sw-labels">
+                        <span class="sw-label sw-radio">Radio</span>
+                        <span class="sw-label sw-od">On Demand</span>
+                    </div>
+                    <div class="sw-track">
+                        <span class="sw-dot sw-top"></span>
+                        <span class="sw-dot sw-bottom"></span>
+                    </div>
+                </div>
+                <img id="icon-left-img" src="icons/On_Demand.png" alt="" hidden>
+            </div>
             <div id="viewport">
                 <div id="track"></div>
             </div>

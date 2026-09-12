@@ -154,7 +154,84 @@ html, body {
 #icon-left {
     right: 100%;
     margin-right: calc(var(--side-gap) * var(--s));
+    height: auto;
 }
+
+#icon-left img {
+    height: calc(var(--left-icon-h) * var(--s));
+    width: auto;
+    object-fit: contain;
+}
+
+/* --- the radio / on demand switch ---------------------------------------- */
+/* Redrawn from the original artwork rather than shown as it ships, because the
+   PNG has the knob baked in at RADIO and a switch that cannot move is a label.
+   Sized off --left-icon-h, the same value the static icon used, so it lands
+   where the original did at any resolution. */
+
+#od-switch-graphic {
+    display: flex;
+    align-items: stretch;
+    gap: calc(var(--left-icon-h) * 0.26 * var(--s));
+}
+
+.sw-labels {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: calc(var(--left-icon-h) * 0.36 * var(--s));
+}
+
+.sw-label {
+    font-family: 'Anton', Impact, sans-serif;
+    font-size: calc(var(--left-icon-h) * 0.38 * var(--s));
+    line-height: 1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #fff;
+    white-space: nowrap;
+    text-shadow: 0 calc(2px * var(--s)) calc(6px * var(--s)) rgba(0, 0, 0, 0.75);
+    transition: opacity 160ms ease;
+}
+
+.sw-track {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* The line the knob travels along, tucked behind both dots. */
+.sw-track::before {
+    content: '';
+    position: absolute;
+    top: calc(var(--left-icon-h) * 0.19 * var(--s));
+    bottom: calc(var(--left-icon-h) * 0.19 * var(--s));
+    width: max(1px, calc(var(--left-icon-h) * 0.02 * var(--s)));
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.sw-dot {
+    position: relative;
+    width: calc(var(--left-icon-h) * 0.38 * var(--s));
+    height: calc(var(--left-icon-h) * 0.38 * var(--s));
+    border-radius: 50%;
+    border: max(1px, calc(var(--left-icon-h) * 0.025 * var(--s))) solid rgba(255, 255, 255, 0.9);
+    background: transparent;
+    transition: background-color 160ms ease;
+}
+
+/* Off: knob at the top, on RADIO -- which is how the original ships. */
+.sw-top    { background: #fff; }
+.sw-radio  { opacity: 1; }
+.sw-od     { opacity: 0.45; }
+
+#radio.od-on .sw-top    { background: transparent; }
+#radio.od-on .sw-bottom { background: #fff; }
+#radio.od-on .sw-radio  { opacity: 0.45; }
+#radio.od-on .sw-od     { opacity: 1; }
 
 #icon-right {
     left: 100%;
@@ -514,30 +591,3 @@ html, body {
 
 /* The HUD is never selectable, but the link field has to be. */
 #od-url { user-select: text; }
-
-/* The On Demand tile is a switch, so the tile has to say which way it is set --
-   a station tile is either highlighted or not, but a switch that looks the same
-   on and off is not a switch. */
-.tile .od-badge {
-    position: absolute;
-    left: 50%;
-    bottom: calc(5px * var(--s));
-    transform: translateX(-50%);
-    padding: calc(1px * var(--s)) calc(7px * var(--s));
-    font-family: 'Anton', Impact, sans-serif;
-    font-size: calc(11px * var(--s));
-    letter-spacing: 0.08em;
-    line-height: 1.35;
-    color: rgba(255, 255, 255, 0.55);
-    background: rgba(0, 0, 0, 0.75);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-#radio.od-on .tile .od-badge {
-    color: #fff;
-    background: var(--muted-color);
-    border-color: var(--muted-color);
-}
-
-#radio.od-on .tile.od-tile img { opacity: 1; }
-.tile.od-tile img { opacity: 0.55; transition: opacity var(--slide) ease; }

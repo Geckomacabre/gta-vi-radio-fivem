@@ -39,11 +39,11 @@ Config.Controller = {
     invertSwitchAxis = false,
 }
 
--- While the wheel is open, Down (arrow key or D-pad) toggles mute. On a
--- controller this is the only way to mute, since every pad button is already
--- taken while driving. The exception is the On Demand tile, where up and down
--- are the switch itself (see Config.OnDemand.switchKeys).
-Config.MuteOnDownWhileOpen = true
+-- Mute from inside the wheel. Up and down belong to the On Demand switch, so
+-- this sits on Spacebar on a keyboard (handbrake, which is not much use while
+-- you are reading the radio anyway) and on D-pad Down on a controller, where
+-- nothing else is free. The O binding above works everywhere, wheel or not.
+Config.MuteInWheel = true
 
 -- Permanently disable the vanilla radio controls (wheel, next/prev station) so
 -- the stock wheel cannot flash open on the same button.
@@ -167,13 +167,15 @@ Config.Stations = {
 Config.OnDemand = {
     enabled    = true,
     label      = 'ON DEMAND',
-    logo       = 'icons/On_Demand.png',
-    genre      = 'Your Playlist',
 
-    -- Up flips the switch on, down flips it off, while the On Demand tile is
-    -- the highlighted one -- arrow keys on a keyboard, D-pad or right stick on
-    -- a pad. Set false to leave up/down alone everywhere; the switch is then
-    -- only reachable from the panel itself and the /ondemand command.
+    -- The left side icon is a two-position switch, RADIO over ON DEMAND, and it
+    -- is thrown the way it reads: down for On Demand, up to hand the radio
+    -- back. It works from anywhere in the wheel -- there is nothing to scroll
+    -- to. Arrow keys on a keyboard, the right stick on a controller (the D-pad
+    -- cannot take it: down is mute, and on a keyboard the right-stick axis is
+    -- the mouse). Down also opens the panel once the wheel is released. Set
+    -- false to leave up and down alone and reach the switch only through the
+    -- panel and /ondemand.
     switchKeys = true,
 
     queueLimit = 20,       -- tracks a single vehicle may have queued

@@ -7,6 +7,8 @@
     var radio    = document.getElementById('radio');
     var track    = document.getElementById('track');
     var iconL    = document.getElementById('icon-left');
+    var iconLImg = document.getElementById('icon-left-img');
+    var odSwitch = document.getElementById('od-switch-graphic');
     var iconR    = document.getElementById('icon-right');
     var elLine   = document.getElementById('info-line');
     var elStat   = document.getElementById('station');
@@ -35,6 +37,7 @@
     var index     = 0;
     var muted     = false;
     var odOn      = false;
+    var label     = null;   // overrides the station name while On Demand owns the audio
     var isOpen    = false;
     var flashTimer = null;
 
@@ -84,9 +87,12 @@
         s.setProperty('--artist-y', px(cfg.artistY));
         s.setProperty('--artist-size', px(font * cfg.artistScale));
 
-        // leftIcon is false once On Demand has its own place in the carousel.
-        if (cfg.leftIcon) iconL.src = cfg.leftIcon;
-        iconL.style.display = (cfg.sideIcons && cfg.leftIcon) ? '' : 'none';
+        // With On Demand on the left icon is a live switch; without it, it is
+        // the static artwork the original mod drew there.
+        if (cfg.leftIcon) iconLImg.src = cfg.leftIcon;
+        iconLImg.hidden = !!cfg.odSwitch;
+        odSwitch.hidden = !cfg.odSwitch;
+        iconL.style.display = cfg.sideIcons ? '' : 'none';
         iconR.style.display = cfg.sideIcons ? '' : 'none';
         elLine.style.display = cfg.infoLineHeight > 0 ? '' : 'none';
     }
@@ -97,7 +103,7 @@
 
         stations.forEach(function (station) {
             var tile = document.createElement('div');
-            tile.className = station.od ? 'tile od-tile' : 'tile';
+            tile.className = 'tile';
 
             if (station.logo && (!hud || hud.stationLogos !== false)) {
                 var img = document.createElement('img');
@@ -110,13 +116,6 @@
                 tile.appendChild(img);
             } else {
                 tile.appendChild(fallbackNode(station.label));
-            }
-
-            // On Demand is a switch: its tile has to read on or off at a glance.
-            if (station.od) {
-                var badge = document.createElement('span');
-                badge.className = 'od-badge';
-                tile.appendChild(badge);
             }
 
             track.appendChild(tile);
@@ -165,20 +164,19 @@
         }
 
         var station = stations[index];
-        elStat.textContent = station ? station.label : '';
+        elStat.textContent = label || (station ? station.label : '');
 
         radio.classList.toggle('muted', muted);
         radio.classList.toggle('od-on', odOn);
-
-        var badge = track.querySelector('.od-badge');
-        if (badge) badge.textContent = odOn ? 'ON' : 'OFF';
 
         if (hud) setMaskIcon(iconR, muted ? hud.unmuteIcon : hud.rightIcon);
     }
 
     function renderNowPlaying(title, artist) {
         var station = stations[index];
-        var isOff = station && station.off;
+        // A highlighted "radio off" tile blanks the lines -- unless On Demand
+        // is what is actually playing, in which case they are not its lines.
+        var isOff = station && station.off && !label;
 
         if (isOff) {
             elTitle.textContent = '';
@@ -186,8 +184,12 @@
             return;
         }
 
-        if (title) {
-            elTitle.textContent = title;
+        // Either line on its own is still a live feed. On Demand with an empty
+        // queue sends only the second one ("Nothing queued"), and falling
+        // through to the genre below would answer it with the highlighted
+        // station's -- which is not what is playing, because nothing is.
+        if (title || artist) {
+            elTitle.textContent = title || '';
             elArtist.textContent = artist || '';
             return;
         }
@@ -215,6 +217,7 @@
             index  = typeof data.index === 'number' ? data.index : index;
             muted  = !!data.muted;
             odOn   = !!data.odOn;
+            label  = data.label || null;
             isOpen = !!data.open;
 
             render();

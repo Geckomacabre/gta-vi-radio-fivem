@@ -8,7 +8,7 @@ through the car radio, as a shared queue everyone in earshot hears.
 No framework dependency. On Demand needs [xsound](https://github.com/Xogy/xsound)
 installed; without it the wheel still works and On Demand switches itself off.
 
-![The radio wheel open in a vehicle](docs/radio.png)
+![The radio wheel open in a vehicle, the switch at RADIO](docs/radio.png)
 
 ![The same wheel with the radio muted](docs/radiomuted.png)
 
@@ -36,15 +36,19 @@ installed; without it the wheel still works and On Demand switches itself off.
 | --- | --- | --- |
 | Open the radio wheel | Hold **Q** | Hold **D-pad Left** |
 | Previous / next station | **←** / **→**, or the mouse wheel | **Right stick** left / right, or **D-pad Up** / **D-pad Right** |
-| Mute / unmute | **O**, or **↓** while the wheel is open | **D-pad Down** while the wheel is open |
-| Switch On Demand on / off | **↑** / **↓** on the **On Demand** tile | **Right stick** up / down, or **D-pad Up** / **D-pad Down**, on the tile |
-| Open the On Demand panel | Release the wheel on the tile while it is on, or `/ondemand` | Same |
+| Mute / unmute | **O** anywhere, or **Space** while the wheel is open | **D-pad Down** while the wheel is open |
+| Throw the radio / On Demand switch | **↓** for On Demand, **↑** for radio | **Right stick** down / up |
+| Open the On Demand panel | **↓**, then release the wheel — or `/ondemand` | Same |
 
-On the On Demand tile, up and down flip its switch instead of doing what they do
-elsewhere in the wheel — so mute-on-down and the pad's up-is-previous step apply
-on every *other* tile, and only there. Set `Config.OnDemand.switchKeys = false`
-to leave up and down alone everywhere and drive the switch from the panel and
-`/ondemand` only.
+The switch works from anywhere in the wheel; there is nothing to scroll to. It
+is thrown the way the artwork reads — `RADIO` is the top position, `ON DEMAND`
+the bottom one — so down engages On Demand and up hands the radio back.
+
+Up and down therefore belong to the switch, which is why mute moved: to Space on
+a keyboard (the handbrake, no great loss while you are reading the radio) and to
+D-pad Down on a pad, where nothing else is free. `O` still works everywhere,
+wheel open or not. Set `Config.OnDemand.switchKeys = false` to leave up and down
+alone and reach On Demand through the panel and `/ondemand` only.
 
 The wheel is **vehicle-only**, for the driver or any passenger. Set
 `Config.DriverOnly = true` to restrict it to the driver, or
@@ -81,23 +85,28 @@ the wheel thinks it is open, and the live state of the radio wheel control.
 
 ## On Demand
 
-The first tile in the wheel is **On Demand**, and it is a switch rather than a
-station. The tile reads `ON` or `OFF`, and you flip it with up and down while it
-is highlighted — arrow keys on a keyboard, the right stick or D-pad on a pad:
+![The switch thrown to ON DEMAND, with the panel open](docs/radio_on_demand.png)
 
-* **Up — on.** The station that was playing is remembered and the game radio
-  goes quiet.
-* **Down — off.** Playback stops and the remembered station comes back.
+The icon to the left of the carousel is a two-position switch, `RADIO` over
+`ON DEMAND`. It is the original mod's own artwork, redrawn so the knob can
+actually move between the two positions — it slides down and `ON DEMAND` lights
+up while `RADIO` dims, and back again. (With `Config.OnDemand.enabled = false`
+the static artwork is shown instead, exactly as the original drew it.)
 
-Browsing past the tile changes nothing; only up and down flip it. Let go of the
-wheel while it is highlighted and on, and the panel opens — paste a YouTube link
-(or a direct `.mp3` / `.ogg` / `.wav` URL) and either play it straight away or
-add it to the vehicle's queue.
+* **Down — On Demand.** The station that was playing is remembered, the game
+  radio goes quiet, and letting go of the wheel opens the panel: paste a YouTube
+  link (or a direct `.mp3` / `.ogg` / `.wav` URL) and either play it straight
+  away or add it to the vehicle's queue.
+* **Up — radio.** Playback stops and the remembered station comes back.
 
-The switch stays on when the queue runs out or is emptied — the vehicle is
+While On Demand has the audio, scrolling the carousel only *previews* stations —
+it does not start one playing over the top of the track. The station you land on
+is applied when you let go, and that is also what switches On Demand off.
+
+The switch stays down when the queue runs out or is emptied — the vehicle is
 simply silent until something else is queued — so "nothing playing" and
-"switched off" are two different states. Reopen the panel at any time with
-`/ondemand`, or turn the switch off from inside it.
+"switched off" are two different states. Reopen the panel at any time by
+throwing the switch down again, with `/ondemand`, or from inside the panel.
 
 * **Everyone nearby hears it.** The audio is positioned at the vehicle, so
   passengers and anyone stood close by hear the same track at the same point in

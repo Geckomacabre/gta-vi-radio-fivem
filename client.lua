@@ -26,6 +26,8 @@ local navLastStep   = 0
 local navDir        = 0
 local stickLatched  = false  -- right stick must recentre between station changes
 local stickYLatched = false  -- same again vertically, for the On Demand switch
+local stationPicked = false  -- a station was browsed to during this wheel session
+local panelOnClose  = false  -- On Demand was switched on, so show the panel on release
 local openedByControl = false -- opened by the raw radio-wheel control (pad), not our keybind
 
 -- On Demand. Sessions are keyed by vehicle network id and are pushed by the
@@ -96,16 +98,6 @@ local function buildStations()
     local list = {}
     local seenOff = false
 
-    -- On Demand sits first, where the original mod drew its side icon.
-    if odAvailable() then
-        list[#list + 1] = {
-            name  = ON_DEMAND,
-            label = OD.label,
-            logo  = OD.logo,
-            genre = OD.genre,
-        }
-    end
-
     for i = 0, GetNumUnlockedRadioStations() - 1 do
         local name = GetRadioStationName(i)
         if name and name ~= '' then
@@ -125,7 +117,7 @@ local function buildStations()
     stations = list
 
     -- keep the highlight on whatever is actually playing
-    local playing = odSessionHere() and ON_DEMAND or (GetPlayerRadioStationName() or 'OFF')
+    local playing = GetPlayerRadioStationName() or 'OFF'
     for i, s in ipairs(stations) do
         if s.name == playing then index = i break end
     end
@@ -134,11 +126,6 @@ end
 
 local function applyStation(entry)
     local veh = currentVehicle()
-
-    -- On Demand is a switch, not a station. Browsing past it changes nothing:
-    -- it is flipped on release, and flipping it is what silences the radio.
-    if entry.name == ON_DEMAND then return end
-
     if veh ~= 0 then
         SetVehRadioStation(veh, entry.name)
     end
@@ -164,37 +151,43 @@ local function nuiPayload()
             logo  = s.logo,
             genre = s.genre,
             off   = s.name == 'OFF',
-            od    = s.name == ON_DEMAND,
         }
     end
     return items
 end
 
--- With On Demand in the carousel the left side icon would be the same artwork
--- twice, so it is switched off in the payload rather than in the config.
-local function hudPayload()
-    if not OD.enabled then return Config.Hud end
-    local copy = {}
-    for k, v in pairs(Config.Hud) do copy[k] = v end
-    copy.leftIcon = false
-    return copy
-end
-
 -- The title/artist lines come from whatever is playing: an On Demand track when
 -- one is, otherwise whatever another resource has pushed in through SetNowPlaying.
-local function currentTrackLines()
-    local entry = stations[index]
-    local sess  = odSessionHere()
-    if entry and entry.name == ON_DEMAND and sess then
-        if not sess.playing then return nil, 'Nothing queued' end
-        return sess.title, sess.paused and 'Paused' or sess.artist
+-- Returns the station name to show, then the two lines under it.
+--
+-- While On Demand is on, the highlighted station is not what anyone is hearing,
+-- so naming it above an On Demand track would read as that station playing that
+-- track. The lines say On Demand instead -- until the player starts browsing,
+-- at which point the carousel is a station picker again and the name under it
+-- is the one they are about to choose.
+local function currentLines()
+    local sess = odSessionHere()
+
+    if sess and not stationPicked then
+        if not sess.playing then return OD.label, nil, 'Nothing queued' end
+        return OD.label, sess.title, sess.paused and 'Paused' or sess.artist
     end
-    return nowPlaying.title, nowPlaying.artist
+
+    return nil, nowPlaying.title, nowPlaying.artist
+end
+
+-- The left icon is the radio/On Demand switch when On Demand is available, and
+-- the original static artwork when it is not.
+local function hudPayload()
+    local copy = {}
+    for k, v in pairs(Config.Hud) do copy[k] = v end
+    copy.odSwitch = OD.enabled
+    return copy
 end
 
 local function pushState(withList)
     if not Config.Hud.enabled then return end
-    local title, artist = currentTrackLines()
+    local label, title, artist = currentLines()
     SendNUIMessage({
         action  = 'state',
         open    = wheelOpen or popupOpen,
@@ -203,6 +196,7 @@ local function pushState(withList)
         index   = index - 1,
         muted   = muted,
         odOn    = odSessionHere() ~= nil,
+        label   = label,
         title   = title,
         artist  = artist,
     })
@@ -288,9 +282,14 @@ end
 
 local function step(dir)
     if #stations == 0 then return end
+    stationPicked = true
     index = index + dir
     if index < 1 then index = #stations elseif index > #stations then index = 1 end
-    applyStation(stations[index])
+
+    -- With On Demand on, the game radio is off and a track is already playing.
+    -- Applying each station as it is scrolled past would start the radio over
+    -- the top of it, so browsing only previews and the choice lands on release.
+    if not odSessionHere() then applyStation(stations[index]) end
     if muted then
         muted = false
         applyMute()
@@ -302,6 +301,7 @@ local function openWheel()
     if wheelOpen or popupOpen or not canUseRadio() then return end
     buildStations()
     wheelOpen = true
+    stationPicked, panelOnClose = false, false
     navDir, navHeldSince, navLastStep = 0, 0, 0
     playSound(Config.OpenSound)
     pushState(true)
@@ -318,22 +318,26 @@ local function closeWheel()
     if Config.Timecycle ~= '' then ClearTimecycleModifier() end
     if Config.HideRadar then DisplayRadar(true) end
 
-    -- Releasing the key is the commit: it is what "selecting" an entry means
-    -- when the wheel is browsed by holding a button. Skipped when the wheel
-    -- closed because the player got out, which is not a choice they made.
-    local entry = stations[index]
-    if OD.enabled and entry and currentVehicle() ~= 0 then
-        if entry.name == ON_DEMAND then
-            -- The switch is flipped with up/down while browsing, not by letting
-            -- go. Releasing on it is just how you get at the queue.
-            if odSessionHere() then openPanel() end
-        elseif odSessionHere() then
-            -- Picking a station is also a way of switching On Demand off, and
-            -- the station they just picked is the one they want -- not the one
-            -- that was playing before the switch went on.
+    -- Releasing the key is the commit. Skipped when the wheel closed because
+    -- the player got out, which is not a choice they made.
+    if OD.enabled and currentVehicle() ~= 0 then
+        if stationPicked and odSessionHere() then
+            applyStation(stations[index])
+            -- Browsing to a station is the other way of switching On Demand
+            -- off, and the station they just landed on is the one they want --
+            -- not the one that was playing before the switch went on. Merely
+            -- opening and closing the wheel is not browsing, so it leaves an
+            -- On Demand queue alone.
             odDisengage(false)
+        elseif panelOnClose and odSessionHere() then
+            -- Up asked for the panel. It cannot open while the wheel key is
+            -- still held -- NUI focus and hold-to-open cannot share a key --
+            -- so it waits here for the release.
+            openPanel()
         end
     end
+
+    stationPicked, panelOnClose = false, false
 
     pushState(false)
 end
@@ -402,6 +406,7 @@ CreateThread(function()
             DisableControlAction(0, 83, true)   -- VEH_NEXT_RADIO_TRACK
             DisableControlAction(0, 84, true)   -- VEH_PREV_RADIO_TRACK
             DisableControlAction(0, 27, true)   -- PHONE
+            DisableControlAction(0, 76, true)   -- VEH_HANDBRAKE (Spacebar = mute here)
             DisableControlAction(0, 172, true)  -- CELLPHONE_UP
             DisableControlAction(0, 173, true)  -- CELLPHONE_DOWN
             DisableControlAction(0, 174, true)  -- CELLPHONE_LEFT  (arrow left)
@@ -421,20 +426,22 @@ CreateThread(function()
                 DisableControlAction(0, 221, true)  -- SCRIPT_RIGHT_AXIS_Y
             end
 
-            -- Up and down flip the On Demand switch, but only while its tile is
-            -- the highlighted one. Everywhere else in the wheel they keep what
-            -- they always meant: down mutes, and on a pad up steps backwards.
-            local onSwitch = OD.enabled and OD.switchKeys
-                             and stations[index] and stations[index].name == ON_DEMAND
-
-            if onSwitch then
-                local up   = IsDisabledControlJustPressed(0, 172)
-                local down = IsDisabledControlJustPressed(0, 173)
+            -- The radio / On Demand switch, reachable from anywhere in the
+            -- wheel -- there is nothing to scroll to. It is thrown the way the
+            -- artwork reads: RADIO is the top position and ON DEMAND the
+            -- bottom one, so down engages On Demand and up hands the radio
+            -- back. Split by device, because the same control id is different
+            -- hardware depending on what is being held: 172/173 are the arrow
+            -- keys on a keyboard and the D-pad on a pad, and 221 is the right
+            -- stick on a pad but the *mouse* on a keyboard, which would throw
+            -- the switch every time the player looked around.
+            if OD.enabled and OD.switchKeys then
+                local up, down = false, false
 
                 if pad then
-                    -- Right stick vertical. Pushing up reads negative, the same
-                    -- way the game's own look control does; a pad that reports
-                    -- it the other way round is what invertSwitchAxis is for.
+                    -- Pushing up reads negative, the same way the game's own
+                    -- look control does; a pad that reports it the other way
+                    -- round is what invertSwitchAxis is for.
                     local y = GetDisabledControlNormal(0, 221)
                     if Config.Controller.invertSwitchAxis then y = -y end
 
@@ -446,17 +453,33 @@ CreateThread(function()
                     else
                         stickYLatched = false
                     end
+                else
+                    stickYLatched = false
+                    up   = IsDisabledControlJustPressed(0, 172)
+                    down = IsDisabledControlJustPressed(0, 173)
                 end
 
-                if up then
+                if down then
                     odEngage(false)
-                elseif down then
+                    -- Throwing it to On Demand is almost always followed by
+                    -- wanting to queue something. Throwing it down again while
+                    -- it is already there is therefore how the panel is
+                    -- reopened without a command.
+                    panelOnClose  = true
+                    stationPicked = false
+                elseif up then
                     odDisengage(true)
+                    panelOnClose = false
                 end
-            else
-                stickYLatched = false
+            end
 
-                if Config.MuteOnDownWhileOpen and IsDisabledControlJustPressed(0, 173) then
+            -- Mute. Spacebar on a keyboard -- the handbrake, which is no loss
+            -- while you are reading the radio -- and D-pad Down on a pad, where
+            -- nothing else is free. Up and down are the switch on both.
+            if Config.MuteInWheel then
+                if pad then
+                    if IsDisabledControlJustPressed(0, 173) then toggleMute() end
+                elseif IsDisabledControlJustPressed(0, 76) then
                     toggleMute()
                 end
             end
@@ -477,9 +500,9 @@ CreateThread(function()
                 else
                     stickLatched = false
                     if IsDisabledControlJustPressed(0, 175) then dir = 1
-                    elseif not onSwitch and IsDisabledControlJustPressed(0, 172) then dir = -1 end
+                    elseif IsDisabledControlJustPressed(0, 172) then dir = -1 end
                     if IsDisabledControlPressed(0, 175) then held = 1
-                    elseif not onSwitch and IsDisabledControlPressed(0, 172) then held = -1 end
+                    elseif IsDisabledControlPressed(0, 172) then held = -1 end
                 end
             else
                 stickLatched = false
