@@ -1,0 +1,218 @@
+@font-face {
+    font-family: 'Anton';
+    src: url('fonts/Anton.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    user-select: none;
+}
+
+/* Declared on :root only - repeating them on `body` would shadow the scale
+   value app.js writes to the root element. */
+:root {
+    /* --s is the 1080p -> actual resolution scale, set from app.js */
+    --s: 1;
+    --icon: 103px;
+    --spacing: 112px;
+    --top: 32px;
+    --border: 3.5px;
+    --box: rgba(0, 0, 0, 0.667);
+    --box-active: rgba(45, 45, 45, 0.863);
+    --outline: rgba(255, 255, 255, 0.353);
+    --outline-active: rgba(255, 255, 255, 1);
+    --slide: 110ms;
+    --side-gap: 37px;
+    --left-icon-h: 55px;
+    --right-icon-h: 24px;
+    --line-y: 24px;
+    --line-w: 189px;
+    --line-h: 6.5px;
+    --station-y: 34px;
+    --station-size: 36px;
+    --title-y: 68px;
+    --title-size: 31px;
+    --artist-y: 95px;
+    --artist-size: 28px;
+}
+
+#radio {
+    position: absolute;
+    top: calc(var(--top) * var(--s));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    opacity: 1;
+    transition: opacity 160ms ease;
+}
+
+#radio.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* --- carousel ------------------------------------------------------------ */
+
+/* Five slots wide, so neighbours fade out at the edges instead of popping.
+   The side icons are absolutely positioned so they cannot push the carousel
+   off centre - the info block below is centred on the same axis. */
+#carousel {
+    position: relative;
+    width: calc(var(--spacing) * 5 * var(--s));
+    height: calc(var(--icon) * var(--s));
+}
+
+#viewport {
+    position: relative;
+    width: 100%;
+    height: calc(var(--icon) * var(--s));
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right,
+        transparent 0%, #000 18%, #000 82%, transparent 100%);
+    mask-image: linear-gradient(to right,
+        transparent 0%, #000 18%, #000 82%, transparent 100%);
+}
+
+#track {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    transition: transform var(--slide) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.tile {
+    position: relative;
+    flex: 0 0 auto;
+    width: calc(var(--icon) * var(--s));
+    height: calc(var(--icon) * var(--s));
+    margin: 0 calc((var(--spacing) - var(--icon)) / 2 * var(--s));
+    background: var(--box);
+    border: calc(var(--border) * var(--s)) solid var(--outline);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    opacity: 0.55;
+    transform: scale(0.9);
+    transition: background var(--slide) ease,
+                border-color var(--slide) ease,
+                opacity var(--slide) ease,
+                transform var(--slide) cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.tile.active {
+    background: var(--box-active);
+    border-color: var(--outline-active);
+    opacity: 1;
+    transform: scale(1);
+}
+
+.tile img {
+    width: 88%;
+    height: 88%;
+    object-fit: contain;
+    image-rendering: auto;
+}
+
+/* Stations without a logo file fall back to their name. */
+.tile .fallback {
+    font-family: 'Anton', Impact, sans-serif;
+    font-size: calc(15px * var(--s));
+    line-height: 1.1;
+    letter-spacing: 0.02em;
+    text-align: center;
+    text-transform: uppercase;
+    color: #fff;
+    padding: 0 8%;
+    word-break: break-word;
+}
+
+.side-icon {
+    position: absolute;
+    top: 50%;
+    height: calc(var(--left-icon-h) * var(--s));
+    width: auto;
+    object-fit: contain;
+    opacity: 0.9;
+    transform: translateY(-50%);
+}
+
+#icon-left {
+    right: 100%;
+    margin-right: calc(var(--side-gap) * var(--s));
+}
+
+#icon-right {
+    left: 100%;
+    margin-left: calc(var(--side-gap) * var(--s));
+    height: calc(var(--right-icon-h) * var(--s));
+}
+
+#radio.muted #icon-right { opacity: 1; }
+
+/* --- info block ---------------------------------------------------------- */
+
+#info {
+    position: relative;
+    width: calc(var(--line-w) * 3.4 * var(--s));
+    height: calc((var(--artist-y) + 40px) * var(--s));
+}
+
+#info-line {
+    position: absolute;
+    top: calc(var(--line-y) * var(--s));
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(var(--line-w) * var(--s));
+    height: calc(var(--line-h) * var(--s));
+    background: #fff;
+}
+
+#station, #title, #artist {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-family: 'Anton', Impact, sans-serif;
+    text-transform: uppercase;
+    color: #fff;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 calc(2px * var(--s)) calc(6px * var(--s)) rgba(0, 0, 0, 0.75);
+}
+
+#station {
+    top: calc(var(--station-y) * var(--s));
+    font-size: calc(var(--station-size) * var(--s));
+    line-height: 1.05;
+}
+
+#title {
+    top: calc(var(--title-y) * var(--s));
+    font-size: calc(var(--title-size) * var(--s));
+    line-height: 1.05;
+    opacity: 0.92;
+}
+
+#artist {
+    top: calc(var(--artist-y) * var(--s));
+    font-size: calc(var(--artist-size) * var(--s));
+    line-height: 1.05;
+    opacity: 0.62;
+}
+
+#title:empty, #artist:empty { display: none; }
