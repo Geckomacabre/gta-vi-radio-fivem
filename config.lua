@@ -20,15 +20,17 @@ Config.AutoRepeatDelay = 350    -- ms before auto repeat kicks in
 Config.AutoRepeatRate  = 120    -- ms between repeats
 
 -- Controller support.
--- The wheel opens on D-pad Left, the same button the vanilla radio wheel uses.
--- That button is also INPUT_CELLPHONE_LEFT and INPUT_WEAPON_WHEEL_PREV, so on a
--- pad the stations are browsed with the right stick instead of the D-pad --
--- again matching the vanilla wheel.
+-- The wheel opens on whatever the game has bound to the radio wheel control
+-- (INPUT_VEH_RADIO_WHEEL, D-pad Left by default), read directly rather than
+-- through a FiveM key binding -- key bindings only ever set a *default*, so a
+-- pad binding added after the fact never reaches a client that already stored
+-- one. Because D-pad Left is held to keep the wheel open, and is also
+-- INPUT_CELLPHONE_LEFT, stations are browsed with the right stick, D-pad Right
+-- and D-pad Up instead.
 Config.Controller = {
     enabled    = true,
-    openButton = 'LLEFT_INDEX',  -- see docs.fivem.net -> PAD_DIGITALBUTTON
-    deadzone   = 0.5,            -- right stick travel before a change registers
-    lockCamera = true,           -- stop the right stick swinging the camera
+    deadzone   = 0.5,   -- right stick travel before a station change registers
+    lockCamera = true,  -- stop the right stick swinging the camera while browsing
 }
 
 -- While the wheel is open, Down (arrow key or D-pad) toggles mute. On a
@@ -40,8 +42,9 @@ Config.MuteOnDownWhileOpen = true
 -- the stock wheel cannot flash open on the same button.
 Config.DisableVanillaRadioControls = true
 
--- Who may open the wheel.
-Config.DriverOnly      = true   -- false = passengers can change the radio too
+-- Who may open the wheel. The wheel is vehicle-only by default, which is what
+-- keeps the controller bindings from clashing with anything on foot.
+Config.DriverOnly      = false  -- false = driver or passenger; true = driver only
 Config.AllowOnFoot     = false  -- true = also works with the mobile radio on foot
 
 -- ---------------------------------------------------------------------------

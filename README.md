@@ -26,23 +26,41 @@ Standalone and client-side — no framework dependency.
 | Action | Keyboard | Controller |
 | --- | --- | --- |
 | Open the radio wheel | Hold **Q** | Hold **D-pad Left** |
-| Previous / next station | **←** / **→**, or the mouse wheel | **Right stick** left / right |
+| Previous / next station | **←** / **→**, or the mouse wheel | **Right stick** left / right, or **D-pad Up** / **D-pad Right** |
 | Mute / unmute | **O**, or **↓** while the wheel is open | **D-pad Down** while the wheel is open |
 
-Both open bindings can be rebound under **Settings → Key Bindings → FiveM**;
-they are two default bindings on the same command, so changing one leaves the
-other alone.
+The wheel is **vehicle-only**, for the driver or any passenger. Set
+`Config.DriverOnly = true` to restrict it to the driver, or
+`Config.AllowOnFoot = true` to extend it to the mobile radio on foot.
 
-Controller layout follows the vanilla radio wheel: D-pad Left opens it, the right
-stick picks a station. The D-pad cannot be used for browsing because D-pad Left
-is the open button (it is `INPUT_CELLPHONE_LEFT` and `INPUT_WEAPON_WHEEL_PREV`
-as well), so holding it would otherwise spam a station change every frame. While
-the wheel is open on a pad the camera is locked so the right stick does not swing
-the view — set `Config.Controller.lockCamera = false` if you would rather it did.
+The keyboard keys are rebindable under **Settings → Key Bindings → FiveM**.
 
-Mute has no global controller binding because every pad button is already taken
-while driving; it lives on D-pad Down inside the wheel instead. Set
+### How the controller binding works
+
+The controller does **not** go through FiveM's key-binding system. A binding
+registered with `RegisterKeyMapping` is only a *default*: once a client has
+stored a binding for a command, a default added later never reaches it. So the
+pad reads `INPUT_VEH_RADIO_WHEEL` directly — the game's own radio wheel control,
+D-pad Left out of the box, and whatever the player has rebound it to otherwise.
+The stock wheel is suppressed every frame so it cannot open on the same button.
+
+Because that button is *held* to keep the wheel open, and is simultaneously
+`INPUT_CELLPHONE_LEFT` and `INPUT_WEAPON_WHEEL_PREV`, it cannot also mean
+"previous station" — holding it would step the station every frame. Browsing on a
+pad is therefore the right stick (as in the vanilla wheel), with D-pad Up and
+D-pad Right as discrete alternates. While browsing on a pad the camera is locked
+so the right stick does not swing the view; set
+`Config.Controller.lockCamera = false` if you would rather it did.
+
+Mute has no global pad binding because no controller button is free while
+driving, so it lives on D-pad Down inside the wheel. Set
 `Config.Controller.enabled = false` to drop controller support entirely.
+
+### Troubleshooting
+
+Run `viradio_debug` in the client console (F8) while sitting in a vehicle. It
+prints whether you are in a valid seat, how many stations were found, whether
+the wheel thinks it is open, and the live state of the radio wheel control.
 
 ## Configuration
 

@@ -22,6 +22,7 @@ local navHeldSince  = 0
 local navLastStep   = 0
 local navDir        = 0
 local stickLatched  = false  -- right stick must recentre between station changes
+local openedByControl = false -- opened by the raw radio-wheel control (pad), not our keybind
 
 -- helpers --------------------------------------------------------------------
 
@@ -32,11 +33,6 @@ local function currentVehicle()
     if veh == 0 then return 0 end
     if Config.DriverOnly and GetPedInVehicleSeat(veh, -1, false) ~= ped then return 0 end
     return veh
-end
-
--- True when the player is on a controller rather than keyboard and mouse.
-local function padActive()
-    return Config.Controller.enabled and not IsUsingKeyboardAndMouse(2)
 end
 
 local function canUseRadio()
@@ -161,6 +157,7 @@ local function closeWheel()
     if not wheelOpen then return end
     wheelOpen = false
     stickLatched = false
+    openedByControl = false
     playSound(Config.CloseSound)
     pushState(false)
 
@@ -184,11 +181,6 @@ end
 RegisterCommand('+vi_radio', function() keyHeld = true end, false)
 RegisterCommand('-vi_radio', function() keyHeld = false end, false)
 RegisterKeyMapping('+vi_radio', 'VI Radio: hold to open the radio wheel', 'keyboard', Config.OpenKey)
-if Config.Controller.enabled then
-    -- '~!' registers an alternate default binding for the same command.
-    RegisterKeyMapping('~!+vi_radio', 'VI Radio: hold to open the radio wheel (pad)',
-        'PAD_DIGITALBUTTON', Config.Controller.openButton)
-end
 
 RegisterCommand('vi_radio_mute', function() toggleMute() end, false)
 RegisterKeyMapping('vi_radio_mute', 'VI Radio: mute / unmute the radio', 'keyboard', Config.MuteKey)
@@ -199,10 +191,24 @@ CreateThread(function()
     while true do
         local wait = 200
 
-        if keyHeld and not wheelOpen then
+        -- Controllers do not go through RegisterKeyMapping. A pad binding there
+        -- is only a *default*, so it never reaches anyone whose client already
+        -- stored a binding for this command. Reading the game's own radio-wheel
+        -- control instead always works, needs no binding, and follows whatever
+        -- the player has that control set to (D-pad Left by default).
+        local ctrlHeld = Config.Controller.enabled and IsDisabledControlPressed(0, 85)
+        local wantOpen = keyHeld or ctrlHeld
+
+        if wantOpen and not wheelOpen then
+            -- keyHeld means our keyboard bind fired, so arrow keys are safe.
+            openedByControl = not keyHeld
             openWheel()
-        elseif wheelOpen and (not keyHeld or not canUseRadio()) then
+        elseif wheelOpen and (not wantOpen or not canUseRadio()) then
             closeWheel()
+        end
+
+        if not wheelOpen and IsPedInAnyVehicle(PlayerPedId(), false) then
+            wait = 0  -- poll every frame so the pad opens without lag
         end
 
         if wheelOpen then
@@ -232,7 +238,7 @@ CreateThread(function()
                 DisableControlAction(0, 15, true)  -- WEAPON_WHEEL_PREV
             end
 
-            local pad = padActive()
+            local pad = openedByControl
             local now = GetGameTimer()
 
             if pad and Config.Controller.lockCamera then
@@ -250,7 +256,8 @@ CreateThread(function()
             local dir, held = 0, 0
 
             if pad then
-                -- D-pad Left is the open button, so the right stick browses.
+                -- D-pad Left is the button holding the wheel open, so it cannot
+                -- double as "previous": right stick, D-pad Right, D-pad Up.
                 local axis = GetDisabledControlNormal(0, 220)
                 if math.abs(axis) >= Config.Controller.deadzone then
                     held = axis > 0 and 1 or -1
@@ -260,6 +267,10 @@ CreateThread(function()
                     end
                 else
                     stickLatched = false
+                    if IsDisabledControlJustPressed(0, 175) then dir = 1
+                    elseif IsDisabledControlJustPressed(0, 172) then dir = -1 end
+                    if IsDisabledControlPressed(0, 175) then held = 1
+                    elseif IsDisabledControlPressed(0, 172) then held = -1 end
                 end
             else
                 stickLatched = false
@@ -362,6 +373,23 @@ CreateThread(function()
         Wait(500)
     end
 end)
+
+-- debug ----------------------------------------------------------------------
+-- /viradio_debug prints why the wheel is or is not responding.
+
+RegisterCommand('viradio_debug', function()
+    local ok, kbm = pcall(function() return IsUsingKeyboardAndMouse(2) end)
+    print(('[vi_radio] inVehicle=%s seatAllowed=%s stations=%d open=%s viaControl=%s keyHeld=%s ctrl85=%s keyboardAndMouse=%s muted=%s'):format(
+        tostring(IsPedInAnyVehicle(PlayerPedId(), false)),
+        tostring(currentVehicle() ~= 0),
+        #stations,
+        tostring(wheelOpen),
+        tostring(openedByControl),
+        tostring(keyHeld),
+        tostring(IsDisabledControlPressed(0, 85)),
+        ok and tostring(kbm) or 'n/a',
+        tostring(muted)))
+end, false)
 
 -- exports --------------------------------------------------------------------
 -- FiveM has no native that resolves the current track title, so the title and
