@@ -13,10 +13,28 @@
     var elTitle  = document.getElementById('title');
     var elArtist = document.getElementById('artist');
 
+    var od          = document.getElementById('od');
+    var odForm      = document.getElementById('od-form');
+    var odUrl       = document.getElementById('od-url');
+    var odQueueBtn  = document.getElementById('od-queue-btn');
+    var odNotice    = document.getElementById('od-notice');
+    var odQueue     = document.getElementById('od-queue');
+    var odQueueNum  = document.getElementById('od-queue-count');
+    var odNowTitle  = document.getElementById('od-now-title');
+    var odNowArtist = document.getElementById('od-now-artist');
+    var odTransport = document.getElementById('od-transport');
+    var odVolume    = document.getElementById('od-volume');
+    var odVolumeVal = document.getElementById('od-volume-value');
+    var odMute      = document.getElementById('od-mute');
+    var odClose     = document.getElementById('od-close');
+    var odSwitch    = document.getElementById('od-switch');
+    var odSwitchTxt = odSwitch.querySelector('.switch-state');
+
     var hud       = null;
     var stations  = [];
     var index     = 0;
     var muted     = false;
+    var odOn      = false;
     var isOpen    = false;
     var flashTimer = null;
 
@@ -66,8 +84,9 @@
         s.setProperty('--artist-y', px(cfg.artistY));
         s.setProperty('--artist-size', px(font * cfg.artistScale));
 
-        iconL.src = cfg.leftIcon;
-        iconL.style.display = cfg.sideIcons ? '' : 'none';
+        // leftIcon is false once On Demand has its own place in the carousel.
+        if (cfg.leftIcon) iconL.src = cfg.leftIcon;
+        iconL.style.display = (cfg.sideIcons && cfg.leftIcon) ? '' : 'none';
         iconR.style.display = cfg.sideIcons ? '' : 'none';
         elLine.style.display = cfg.infoLineHeight > 0 ? '' : 'none';
     }
@@ -78,7 +97,7 @@
 
         stations.forEach(function (station) {
             var tile = document.createElement('div');
-            tile.className = 'tile';
+            tile.className = station.od ? 'tile od-tile' : 'tile';
 
             if (station.logo && (!hud || hud.stationLogos !== false)) {
                 var img = document.createElement('img');
@@ -91,6 +110,13 @@
                 tile.appendChild(img);
             } else {
                 tile.appendChild(fallbackNode(station.label));
+            }
+
+            // On Demand is a switch: its tile has to read on or off at a glance.
+            if (station.od) {
+                var badge = document.createElement('span');
+                badge.className = 'od-badge';
+                tile.appendChild(badge);
             }
 
             track.appendChild(tile);
@@ -142,6 +168,11 @@
         elStat.textContent = station ? station.label : '';
 
         radio.classList.toggle('muted', muted);
+        radio.classList.toggle('od-on', odOn);
+
+        var badge = track.querySelector('.od-badge');
+        if (badge) badge.textContent = odOn ? 'ON' : 'OFF';
+
         if (hud) setMaskIcon(iconR, muted ? hud.unmuteIcon : hud.rightIcon);
     }
 
@@ -183,6 +214,7 @@
 
             index  = typeof data.index === 'number' ? data.index : index;
             muted  = !!data.muted;
+            odOn   = !!data.odOn;
             isOpen = !!data.open;
 
             render();
@@ -205,6 +237,13 @@
             return;
         }
 
+        if (data.action === 'od') {
+            if (typeof data.notice === 'string') { notice(data.notice); return; }
+            if (data.state) renderPanel(data.state);
+            setPanelOpen(!!data.open);
+            return;
+        }
+
         if (data.action === 'sound') {
             var audio = new Audio(data.file);
             audio.volume = Math.max(0, Math.min(1, data.volume));
@@ -216,6 +255,184 @@
     window.addEventListener('resize', function () {
         root.style.setProperty('--s', scale());
         render();
+    });
+
+
+    // -- On Demand panel ---------------------------------------------------
+
+    // The only part of this page that ever talks back to the client. The wheel
+    // itself stays a one-way HUD: it takes no focus and posts nothing.
+    var RESOURCE = 'vi_radio';
+    var odState  = null;
+    var noticeTimer = null;
+
+    function post(name, data, done) {
+        fetch('https://' + RESOURCE + '/' + name, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+            body: JSON.stringify(data || {})
+        }).then(function (res) {
+            return res.json().catch(function () { return null; });
+        }).then(function (body) {
+            if (done) done(body);
+        }).catch(function () { /* not running in game */ });
+    }
+
+    function notice(message, ok) {
+        odNotice.textContent = message || '';
+        odNotice.classList.toggle('ok', !!ok);
+        if (noticeTimer) clearTimeout(noticeTimer);
+        if (message) {
+            noticeTimer = setTimeout(function () {
+                odNotice.textContent = '';
+                noticeTimer = null;
+            }, 5000);
+        }
+    }
+
+    function duration(seconds) {
+        if (!seconds || seconds <= 0) return '';
+        var total = Math.round(seconds);
+        var mins  = Math.floor(total / 60);
+        var secs  = total % 60;
+        return mins + ':' + (secs < 10 ? '0' : '') + secs;
+    }
+
+    function renderQueue(state) {
+        var queue = state.queue || [];
+        odQueue.innerHTML = '';
+        odQueueNum.textContent = queue.length + ' / ' + state.limit;
+
+        if (!queue.length) {
+            var empty = document.createElement('li');
+            empty.className = 'empty';
+            empty.textContent = 'Nothing queued. Paste a link to start one.';
+            odQueue.appendChild(empty);
+            return;
+        }
+
+        queue.forEach(function (entry, i) {
+            var row = document.createElement('li');
+            if (i + 1 === state.index) row.classList.add('playing');
+
+            var pos = document.createElement('span');
+            pos.className = 'pos';
+            pos.textContent = (i + 1 === state.index) ? '\u25B6' : String(i + 1);
+
+            var name = document.createElement('span');
+            name.className = 'name';
+            name.textContent = entry.title || 'Track';
+
+            var by = document.createElement('span');
+            by.className = 'by';
+            by.textContent = [entry.artist, duration(entry.duration)]
+                .filter(Boolean).join('  \u00B7  ');
+
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.textContent = 'Remove';
+            remove.addEventListener('click', function () {
+                post('odRemove', { index: i + 1 });
+            });
+
+            row.appendChild(pos);
+            row.appendChild(name);
+            row.appendChild(by);
+            row.appendChild(remove);
+            odQueue.appendChild(row);
+        });
+    }
+
+    function renderPanel(state) {
+        odState = state;
+
+        var playing = !!state.playing;
+
+        odSwitch.setAttribute('aria-checked', state.engaged ? 'true' : 'false');
+        odSwitchTxt.textContent = state.engaged ? 'On' : 'Off';
+
+        odNowTitle.textContent  = playing ? (state.title || 'Track') : 'Nothing queued';
+        odNowArtist.textContent = playing
+            ? [state.artist, state.paused ? 'Paused' : null].filter(Boolean).join('  \u00B7  ')
+            : '';
+
+        Array.prototype.forEach.call(odTransport.children, function (button) {
+            button.disabled = !playing;
+            if (button.dataset.act === 'pause') {
+                button.textContent = state.paused ? 'Resume' : 'Pause';
+            }
+        });
+
+        renderQueue(state);
+
+        var volume = typeof state.volume === 'number' ? state.volume : 0;
+        odVolume.max = state.maxVolume;
+        odVolume.value = volume;
+        odVolumeVal.textContent = volume + '%';
+        odMute.checked = !!state.muted;
+    }
+
+    function setPanelOpen(open) {
+        od.classList.toggle('hidden', !open);
+        if (open) {
+            odUrl.value = '';
+            notice('');
+            setTimeout(function () { odUrl.focus(); }, 30);
+        } else if (noticeTimer) {
+            clearTimeout(noticeTimer);
+            noticeTimer = null;
+        }
+    }
+
+    function submitLink(playNow) {
+        var url = odUrl.value.trim();
+        if (!url) { notice('Paste a link first'); return; }
+
+        post('odAdd', { url: url, playNow: playNow }, function (body) {
+            if (body && body.ok === false) {
+                notice(body.error || 'That link was rejected');
+                return;
+            }
+            odUrl.value = '';
+            notice(playNow ? 'Playing' : 'Added to the queue', true);
+        });
+    }
+
+    odForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        submitLink(true);
+    });
+
+    odQueueBtn.addEventListener('click', function () { submitLink(false); });
+    odClose.addEventListener('click', function () { post('odClose'); });
+    odSwitch.addEventListener('click', function () { post('odDisengage'); });
+
+    odTransport.addEventListener('click', function (event) {
+        var act = event.target.dataset && event.target.dataset.act;
+        if (!act) return;
+        if (act === 'next')  post('odSkip', { dir: 1 });
+        if (act === 'prev')  post('odSkip', { dir: -1 });
+        if (act === 'pause') post('odPause');
+        if (act === 'stop')  post('odStop');
+    });
+
+    odVolume.addEventListener('input', function () {
+        odVolumeVal.textContent = odVolume.value + '%';
+    });
+    odVolume.addEventListener('change', function () {
+        post('odVolume', { volume: Number(odVolume.value) });
+    });
+
+    odMute.addEventListener('change', function () {
+        post('odMute', { muted: odMute.checked });
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (od.classList.contains('hidden')) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            post('odClose');
+        }
     });
 
     root.style.setProperty('--s', scale());

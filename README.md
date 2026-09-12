@@ -2,9 +2,11 @@
 
 A FiveM port of **VI Radio**, the GTA V Legacy singleplayer mod by *sej0bec*: a
 GTA VI–styled radio carousel, a mute system, station logos, and a slow-motion
-effect while you browse stations.
+effect while you browse stations. Plus **On Demand** — play YouTube links
+through the car radio, as a shared queue everyone in earshot hears.
 
-Standalone and client-side — no framework dependency.
+No framework dependency. On Demand needs [xsound](https://github.com/Xogy/xsound)
+installed; without it the wheel still works and On Demand switches itself off.
 
 ![The radio wheel open in a vehicle](docs/radio.png)
 
@@ -25,6 +27,9 @@ Standalone and client-side — no framework dependency.
 
 3. Tune `config.lua` to taste.
 
+4. For On Demand, make sure `xsound` is started **before** `vi_radio`. Set
+   `Config.OnDemand.enabled = false` if you do not want it at all.
+
 ## Controls
 
 | Action | Keyboard | Controller |
@@ -32,6 +37,14 @@ Standalone and client-side — no framework dependency.
 | Open the radio wheel | Hold **Q** | Hold **D-pad Left** |
 | Previous / next station | **←** / **→**, or the mouse wheel | **Right stick** left / right, or **D-pad Up** / **D-pad Right** |
 | Mute / unmute | **O**, or **↓** while the wheel is open | **D-pad Down** while the wheel is open |
+| Switch On Demand on / off | **↑** / **↓** on the **On Demand** tile | **Right stick** up / down, or **D-pad Up** / **D-pad Down**, on the tile |
+| Open the On Demand panel | Release the wheel on the tile while it is on, or `/ondemand` | Same |
+
+On the On Demand tile, up and down flip its switch instead of doing what they do
+elsewhere in the wheel — so mute-on-down and the pad's up-is-previous step apply
+on every *other* tile, and only there. Set `Config.OnDemand.switchKeys = false`
+to leave up and down alone everywhere and drive the switch from the panel and
+`/ondemand` only.
 
 The wheel is **vehicle-only**, for the driver or any passenger. Set
 `Config.DriverOnly = true` to restrict it to the driver, or
@@ -66,6 +79,51 @@ Run `viradio_debug` in the client console (F8) while sitting in a vehicle. It
 prints whether you are in a valid seat, how many stations were found, whether
 the wheel thinks it is open, and the live state of the radio wheel control.
 
+## On Demand
+
+The first tile in the wheel is **On Demand**, and it is a switch rather than a
+station. The tile reads `ON` or `OFF`, and you flip it with up and down while it
+is highlighted — arrow keys on a keyboard, the right stick or D-pad on a pad:
+
+* **Up — on.** The station that was playing is remembered and the game radio
+  goes quiet.
+* **Down — off.** Playback stops and the remembered station comes back.
+
+Browsing past the tile changes nothing; only up and down flip it. Let go of the
+wheel while it is highlighted and on, and the panel opens — paste a YouTube link
+(or a direct `.mp3` / `.ogg` / `.wav` URL) and either play it straight away or
+add it to the vehicle's queue.
+
+The switch stays on when the queue runs out or is emptied — the vehicle is
+simply silent until something else is queued — so "nothing playing" and
+"switched off" are two different states. Reopen the panel at any time with
+`/ondemand`, or turn the switch off from inside it.
+
+* **Everyone nearby hears it.** The audio is positioned at the vehicle, so
+  passengers and anyone stood close by hear the same track at the same point in
+  it. `Config.OnDemand.distance` sets how far it carries.
+* **Everyone can use it.** Anyone sitting in the vehicle can queue, skip, pause
+  or stop — there is no job check and no permission gate. That is deliberate.
+* **The server owns playback**, keyed by the vehicle's network id, so a
+  passenger who joins halfway through a track hears it from the right place
+  rather than starting it again.
+* **Track titles** are looked up through YouTube's oEmbed endpoint (no API key)
+  and drive the HUD's title and artist lines. Set
+  `Config.OnDemand.fetchTitles = false` to stop the server making that request.
+
+Because anyone can play anything, the panel also carries the two controls that
+protect a listener without restricting who may broadcast: **your own volume**
+(capped by `Config.OnDemand.maxVolume`) and a **mute all On Demand audio**
+toggle. Both are per player, saved on that client, and affect nobody else.
+
+Selecting an ordinary radio station also switches On Demand off — in that case
+the station you just picked is kept, rather than the one that was remembered.
+
+> **Worth knowing:** xsound plays YouTube through the IFrame API, which is not
+> what YouTube's terms of service intend it for. It is how effectively every
+> FiveM audio resource does it, and it is not enforced in practice, but it is
+> your call to make before running this on a public server.
+
 ## Configuration
 
 Everything lives in `config.lua`, mirroring the original mod's `VI Radio.ini`:
@@ -78,6 +136,8 @@ Everything lives in `config.lua`, mirroring the original mod's `VI Radio.ini`:
   info-line and text positions. Values are authored at 1920x1080 and scale to
   the player's resolution.
 * **Stations** — display label, logo and genre per station.
+* **On Demand** — queue limit, audible distance, default and maximum listener
+  volume, title lookup, accepted link types, and the sync/rate-limit timings.
 
 When the radio is muted the indicator turns red (`Config.Hud.mutedColor`) and
 the rest of the HUD drops to greyscale, so the two states cannot be mistaken for
@@ -104,7 +164,18 @@ exports['vi_radio']:SetNowPlaying(title, artist)
 exports['vi_radio']:IsOpen()        --> boolean
 exports['vi_radio']:IsMuted()       --> boolean
 exports['vi_radio']:SetMuted(bool)
-exports['vi_radio']:GetStation()    --> current radio station name
+exports['vi_radio']:GetStation()    --> current station name, or 'ONDEMAND'
+
+-- On Demand (client)
+exports['vi_radio']:IsOnDemandOn()       --> boolean, the switch position
+exports['vi_radio']:IsOnDemandPlaying()  --> boolean, a track is actually running
+exports['vi_radio']:SetOnDemand(bool)    --> flip the switch
+exports['vi_radio']:GetOnDemandTrack()   --> { title, artist, paused, position } or nil
+exports['vi_radio']:OpenOnDemand()
+
+-- On Demand (server)
+exports['vi_radio']:GetOnDemandSession(vehicleNetId)  --> session table or nil
+exports['vi_radio']:StopOnDemand(vehicleNetId)
 ```
 
 ## Differences from the singleplayer mod
@@ -150,6 +221,11 @@ implementation does not.
   not exist without it.
   Original mod: <https://www.gta5-mods.com/scripts/vi-radio-v1-0>
 * **Vernon Adams** — the Anton typeface, SIL Open Font License 1.1.
+* **Logopedia** (logos.fandom.com) — the station logos the original mod did not
+  ship artwork for: West Coast Talk Radio, Blonded Los Santos 97.8, LS
+  Underground Radio, iFruit Radio, Still Slipping Los Santos, Kult FM, The Music
+  Locker, Media Player and MOTOMAMI Los Santos.
+* **xsound** — the audio backend On Demand plays through.
 
 ## License
 
@@ -162,3 +238,7 @@ putting it behind donation perks, subscriptions or any other paid tier.
 The artwork and sound effects in `html/` are the work of **sej0bec** and are
 redistributed here with credit; they are not covered by this license. Ask the
 original author before reusing them elsewhere.
+
+The nine station logos sourced from Logopedia are Rockstar Games' trademarks,
+included here the same way any GTA fan resource includes them. They are not
+covered by this license either.

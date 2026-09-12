@@ -31,11 +31,18 @@ Config.Controller = {
     enabled    = true,
     deadzone   = 0.5,   -- right stick travel before a station change registers
     lockCamera = true,  -- stop the right stick swinging the camera while browsing
+
+    -- The right stick's vertical axis flips the On Demand switch. Pushing up
+    -- normally reads negative, the same way the game's own look control does.
+    -- If your pad reports it the other way round, set this to true.
+    -- Leave lockCamera on unless you like the view tilting as you flip it.
+    invertSwitchAxis = false,
 }
 
 -- While the wheel is open, Down (arrow key or D-pad) toggles mute. On a
 -- controller this is the only way to mute, since every pad button is already
--- taken while driving.
+-- taken while driving. The exception is the On Demand tile, where up and down
+-- are the switch itself (see Config.OnDemand.switchKeys).
 Config.MuteOnDownWhileOpen = true
 
 -- Permanently disable the vanilla radio controls (wheel, next/prev station) so
@@ -146,3 +153,110 @@ Config.Stations = {
     ['RADIO_36_AUDIOPLAYER']           = { label = 'Media Player',              logo = 'MediaPlayer.png',            genre = 'Custom' },
     ['RADIO_37_MOTOMAMI']              = { label = 'MOTOMAMI Los Santos',       logo = 'MOTOMAMI.png',               genre = 'Latin' },
 }
+
+-- ---------------------------------------------------------------------------
+-- On Demand
+-- ---------------------------------------------------------------------------
+-- The On Demand entry plays YouTube links (and direct audio files) through the
+-- car radio using xsound. Audio is positioned at the vehicle, so passengers and
+-- anyone stood nearby hear the same thing at the same point in the track.
+--
+-- Note: xsound plays YouTube through the IFrame API. That is not what YouTube's
+-- terms of service intend it for. It is how effectively every FiveM audio
+-- resource does it, but it is worth knowing before you ship this on a server.
+Config.OnDemand = {
+    enabled    = true,
+    label      = 'ON DEMAND',
+    logo       = 'icons/On_Demand.png',
+    genre      = 'Your Playlist',
+
+    -- Up flips the switch on, down flips it off, while the On Demand tile is
+    -- the highlighted one -- arrow keys on a keyboard, D-pad or right stick on
+    -- a pad. Set false to leave up/down alone everywhere; the switch is then
+    -- only reachable from the panel itself and the /ondemand command.
+    switchKeys = true,
+
+    queueLimit = 20,       -- tracks a single vehicle may have queued
+    distance   = 20.0,     -- metres the audio carries from the vehicle
+    volume     = 35,       -- default listener volume, 0-100
+    maxVolume  = 70,       -- hard cap on what a listener can turn it up to
+
+    -- Look the track title up through YouTube's oEmbed endpoint so the HUD's
+    -- title/artist lines show something real. No API key needed. Set false to
+    -- keep the server from making any outbound request.
+    fetchTitles = true,
+
+    -- Accept plain audio file links as well as YouTube.
+    allowDirectFiles = true,
+    fileExtensions   = { 'mp3', 'ogg', 'wav', 'm4a', 'aac', 'flac' },
+
+    -- Playback sync. The server tells clients how far into the track it is;
+    -- these control how often that is refreshed and how far a listener may
+    -- drift before being seeked back into place.
+    broadcastInterval = 10000,  -- ms between position rebroadcasts
+    syncInterval      = 400,    -- ms between vehicle-position updates
+    resyncDrift       = 3.0,    -- seconds of drift before a reseek
+
+    commandCooldown = 400,      -- ms a player must wait between commands
+}
+
+-- ---------------------------------------------------------------------------
+-- Link parsing (shared, so the client and the server agree on what is valid)
+-- ---------------------------------------------------------------------------
+-- Returns a canonical URL and its kind ('youtube' | 'file'), or nil plus a
+-- reason. xsound's own YouTube parser only understands "?v=" and "youtu.be/",
+-- so everything is normalised to the "?v=" form before it is handed over.
+
+local function youtubeId(chunk)
+    if not chunk then return nil end
+    local id = chunk:sub(1, 11)
+    if #id == 11 and id:match('^[%w_%-]+$') then return id end
+    return nil
+end
+
+function Config.NormalizeUrl(input)
+    if type(input) ~= 'string' then return nil, 'No link given' end
+
+    local url = input:gsub('^%s+', ''):gsub('%s+$', '')
+    if url == '' then return nil, 'No link given' end
+    if #url > 512 then return nil, 'That link is too long' end
+    if url:find('[%s"<>]') or url:find("'") or url:find('\\') then
+        return nil, 'That does not look like a link'
+    end
+    if not url:match('^https?://') then url = 'https://' .. url end
+
+    local host, rest = url:match('^https?://([^/?#]+)(.*)$')
+    if not host then return nil, 'That does not look like a link' end
+    host = host:lower():gsub('^www%.', '')
+    rest = rest or ''
+
+    if host == 'youtu.be' then
+        local id = youtubeId(rest:match('^/([^/?#&]+)'))
+        if id then return 'https://www.youtube.com/watch?v=' .. id, 'youtube' end
+        return nil, 'That YouTube link has no video in it'
+    end
+
+    if host == 'youtube.com' or host == 'm.youtube.com' or host == 'music.youtube.com'
+       or host == 'youtube-nocookie.com' then
+        local id = youtubeId(rest:match('[?&]v=([^&#]+)'))
+              or youtubeId(rest:match('^/shorts/([^/?#&]+)'))
+              or youtubeId(rest:match('^/embed/([^/?#&]+)'))
+              or youtubeId(rest:match('^/live/([^/?#&]+)'))
+        if id then return 'https://www.youtube.com/watch?v=' .. id, 'youtube' end
+        return nil, 'That YouTube link has no video in it'
+    end
+
+    if Config.OnDemand.allowDirectFiles then
+        local path = rest:match('^([^?#]*)') or ''
+        local ext  = path:match('%.(%w+)$')
+        if ext then
+            ext = ext:lower()
+            for _, allowed in ipairs(Config.OnDemand.fileExtensions) do
+                if ext == allowed then return url, 'file' end
+            end
+        end
+        return nil, 'Only YouTube links and direct audio files are supported'
+    end
+
+    return nil, 'Only YouTube links are supported'
+end

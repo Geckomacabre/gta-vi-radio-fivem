@@ -8,11 +8,14 @@
 ]]
 
 local RES = GetCurrentResourceName()
+local OD  = Config.OnDemand
+local ON_DEMAND = 'ONDEMAND'
 
 -- state ----------------------------------------------------------------------
 local stations      = {}     -- ordered list of { name, label, logo, genre }
 local index         = 1      -- currently highlighted entry in `stations`
-local wheelOpen     = false
+local wheelOpen     = false  -- the hold-to-browse wheel, which owns the effects
+local popupOpen     = false  -- the On Demand panel, which owns NUI focus
 local keyHeld       = false
 local muted         = false
 local mutedVehicle  = 0      -- vehicle the mute was applied to
@@ -22,7 +25,15 @@ local navHeldSince  = 0
 local navLastStep   = 0
 local navDir        = 0
 local stickLatched  = false  -- right stick must recentre between station changes
+local stickYLatched = false  -- same again vertically, for the On Demand switch
 local openedByControl = false -- opened by the raw radio-wheel control (pad), not our keybind
+
+-- On Demand. Sessions are keyed by vehicle network id and are pushed by the
+-- server; nothing in here decides what is playing, only whether this client is
+-- close enough to hear it.
+local odSessions = {}
+local odVolume   = math.min(OD.volume, OD.maxVolume) / 100
+local odMuted    = false
 
 -- helpers --------------------------------------------------------------------
 
@@ -38,6 +49,32 @@ end
 local function canUseRadio()
     if currentVehicle() ~= 0 then return true end
     return Config.AllowOnFoot and IsMobilePhoneRadioActive()
+end
+
+-- On Demand belongs to a vehicle, so it is only offered while sat in one.
+local function odAvailable()
+    return OD.enabled and currentVehicle() ~= 0
+end
+
+local function myNetId()
+    local veh = currentVehicle()
+    if veh == 0 then return nil end
+    return VehToNet(veh)
+end
+
+local function odSessionHere()
+    local netId = myNetId()
+    return netId and odSessions[netId] or nil
+end
+
+local function odSoundId(netId)
+    return 'vi_radio_od_' .. netId
+end
+
+local function odElapsed(sess)
+    if not sess or not sess.recvAt then return 0.0 end
+    if sess.paused then return sess.position end
+    return sess.position + (GetGameTimer() - sess.recvAt) / 1000.0
 end
 
 local function stationInfo(name)
@@ -58,6 +95,17 @@ end
 local function buildStations()
     local list = {}
     local seenOff = false
+
+    -- On Demand sits first, where the original mod drew its side icon.
+    if odAvailable() then
+        list[#list + 1] = {
+            name  = ON_DEMAND,
+            label = OD.label,
+            logo  = OD.logo,
+            genre = OD.genre,
+        }
+    end
+
     for i = 0, GetNumUnlockedRadioStations() - 1 do
         local name = GetRadioStationName(i)
         if name and name ~= '' then
@@ -77,7 +125,7 @@ local function buildStations()
     stations = list
 
     -- keep the highlight on whatever is actually playing
-    local playing = GetPlayerRadioStationName() or 'OFF'
+    local playing = odSessionHere() and ON_DEMAND or (GetPlayerRadioStationName() or 'OFF')
     for i, s in ipairs(stations) do
         if s.name == playing then index = i break end
     end
@@ -86,6 +134,11 @@ end
 
 local function applyStation(entry)
     local veh = currentVehicle()
+
+    -- On Demand is a switch, not a station. Browsing past it changes nothing:
+    -- it is flipped on release, and flipping it is what silences the radio.
+    if entry.name == ON_DEMAND then return end
+
     if veh ~= 0 then
         SetVehRadioStation(veh, entry.name)
     end
@@ -106,28 +159,129 @@ end
 local function nuiPayload()
     local items = {}
     for i, s in ipairs(stations) do
-        items[i] = { label = s.label, logo = s.logo, genre = s.genre, off = s.name == 'OFF' }
+        items[i] = {
+            label = s.label,
+            logo  = s.logo,
+            genre = s.genre,
+            off   = s.name == 'OFF',
+            od    = s.name == ON_DEMAND,
+        }
     end
     return items
 end
 
+-- With On Demand in the carousel the left side icon would be the same artwork
+-- twice, so it is switched off in the payload rather than in the config.
+local function hudPayload()
+    if not OD.enabled then return Config.Hud end
+    local copy = {}
+    for k, v in pairs(Config.Hud) do copy[k] = v end
+    copy.leftIcon = false
+    return copy
+end
+
+-- The title/artist lines come from whatever is playing: an On Demand track when
+-- one is, otherwise whatever another resource has pushed in through SetNowPlaying.
+local function currentTrackLines()
+    local entry = stations[index]
+    local sess  = odSessionHere()
+    if entry and entry.name == ON_DEMAND and sess then
+        if not sess.playing then return nil, 'Nothing queued' end
+        return sess.title, sess.paused and 'Paused' or sess.artist
+    end
+    return nowPlaying.title, nowPlaying.artist
+end
+
 local function pushState(withList)
     if not Config.Hud.enabled then return end
+    local title, artist = currentTrackLines()
     SendNUIMessage({
         action  = 'state',
-        open    = wheelOpen,
-        hud     = withList and Config.Hud or nil,
+        open    = wheelOpen or popupOpen,
+        hud     = withList and hudPayload() or nil,
         list    = withList and nuiPayload() or nil,
         index   = index - 1,
         muted   = muted,
-        title   = nowPlaying.title,
-        artist  = nowPlaying.artist,
+        odOn    = odSessionHere() ~= nil,
+        title   = title,
+        artist  = artist,
     })
 end
 
 local function playSound(file)
     if not Config.RadioSounds or not file then return end
     SendNUIMessage({ action = 'sound', file = file, volume = Config.SoundVolume / 100 })
+end
+
+-- On Demand panel ------------------------------------------------------------
+
+local function setStation(name)
+    local veh = currentVehicle()
+    if veh ~= 0 then SetVehRadioStation(veh, name) end
+    SetRadioToStationName(name)
+end
+
+local function odPanelState()
+    local sess = odSessionHere()
+    return {
+        inVehicle = currentVehicle() ~= 0,
+        engaged   = sess ~= nil,
+        playing   = sess ~= nil and sess.playing or false,
+        paused    = sess and sess.paused or false,
+        index     = sess and sess.index or 0,
+        title     = sess and sess.title or nil,
+        artist    = sess and sess.artist or nil,
+        queue     = sess and sess.queue or {},
+        limit     = OD.queueLimit,
+        volume    = math.floor(odVolume * 100 + 0.5),
+        maxVolume = OD.maxVolume,
+        muted     = odMuted,
+    }
+end
+
+local function pushPanel()
+    if not popupOpen then return end
+    SendNUIMessage({ action = 'od', open = true, state = odPanelState() })
+end
+
+local function openPanel()
+    if popupOpen or not odAvailable() then return end
+    popupOpen = true
+    -- The wheel is hold-to-open and takes no focus, so the panel cannot live
+    -- inside it. It latches the HUD open instead -- without the slow motion,
+    -- which follows browsing, not the HUD being on screen.
+    SetNuiFocus(true, true)
+    pushState(false)
+    pushPanel()
+    TriggerServerEvent('vi_radio:od:sync')
+end
+
+local function closePanel()
+    if not popupOpen then return end
+    popupOpen = false
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'od', open = false })
+    pushState(false)
+end
+
+-- the switch -----------------------------------------------------------------
+-- On is a session existing on the server for this vehicle. The station playing
+-- at the moment it goes on is handed over with it, so that whoever turns it off
+-- again -- which need not be the same player -- puts back the right station.
+
+local function odEngage(withPanel)
+    if not odAvailable() or odSessionHere() then return end
+
+    TriggerServerEvent('vi_radio:od:engage', GetPlayerRadioStationName() or 'OFF')
+    setStation('OFF')
+    if withPanel then openPanel() end
+end
+
+local function odDisengage(restore)
+    if not odSessionHere() then return end
+
+    TriggerServerEvent('vi_radio:od:disengage', restore ~= false)
+    closePanel()
 end
 
 -- wheel ----------------------------------------------------------------------
@@ -145,7 +299,7 @@ local function step(dir)
 end
 
 local function openWheel()
-    if wheelOpen or not canUseRadio() then return end
+    if wheelOpen or popupOpen or not canUseRadio() then return end
     buildStations()
     wheelOpen = true
     navDir, navHeldSince, navLastStep = 0, 0, 0
@@ -157,12 +311,31 @@ local function closeWheel()
     if not wheelOpen then return end
     wheelOpen = false
     stickLatched = false
+    stickYLatched = false
     openedByControl = false
     playSound(Config.CloseSound)
-    pushState(false)
 
     if Config.Timecycle ~= '' then ClearTimecycleModifier() end
     if Config.HideRadar then DisplayRadar(true) end
+
+    -- Releasing the key is the commit: it is what "selecting" an entry means
+    -- when the wheel is browsed by holding a button. Skipped when the wheel
+    -- closed because the player got out, which is not a choice they made.
+    local entry = stations[index]
+    if OD.enabled and entry and currentVehicle() ~= 0 then
+        if entry.name == ON_DEMAND then
+            -- The switch is flipped with up/down while browsing, not by letting
+            -- go. Releasing on it is just how you get at the queue.
+            if odSessionHere() then openPanel() end
+        elseif odSessionHere() then
+            -- Picking a station is also a way of switching On Demand off, and
+            -- the station they just picked is the one they want -- not the one
+            -- that was playing before the switch went on.
+            odDisengage(false)
+        end
+    end
+
+    pushState(false)
 end
 
 local function toggleMute()
@@ -170,7 +343,7 @@ local function toggleMute()
     muted = not muted
     applyMute()
     pushState(false)
-    if not wheelOpen and Config.Hud.enabled then
+    if not wheelOpen and not popupOpen and Config.Hud.enabled then
         -- brief HUD flash so the player sees the mute state change
         SendNUIMessage({ action = 'flash', muted = muted })
     end
@@ -197,7 +370,7 @@ CreateThread(function()
         -- control instead always works, needs no binding, and follows whatever
         -- the player has that control set to (D-pad Left by default).
         local ctrlHeld = Config.Controller.enabled and IsDisabledControlPressed(0, 85)
-        local wantOpen = keyHeld or ctrlHeld
+        local wantOpen = (keyHeld or ctrlHeld) and not popupOpen
 
         if wantOpen and not wheelOpen then
             -- keyHeld means our keyboard bind fired, so arrow keys are safe.
@@ -248,8 +421,44 @@ CreateThread(function()
                 DisableControlAction(0, 221, true)  -- SCRIPT_RIGHT_AXIS_Y
             end
 
-            if Config.MuteOnDownWhileOpen and IsDisabledControlJustPressed(0, 173) then
-                toggleMute()
+            -- Up and down flip the On Demand switch, but only while its tile is
+            -- the highlighted one. Everywhere else in the wheel they keep what
+            -- they always meant: down mutes, and on a pad up steps backwards.
+            local onSwitch = OD.enabled and OD.switchKeys
+                             and stations[index] and stations[index].name == ON_DEMAND
+
+            if onSwitch then
+                local up   = IsDisabledControlJustPressed(0, 172)
+                local down = IsDisabledControlJustPressed(0, 173)
+
+                if pad then
+                    -- Right stick vertical. Pushing up reads negative, the same
+                    -- way the game's own look control does; a pad that reports
+                    -- it the other way round is what invertSwitchAxis is for.
+                    local y = GetDisabledControlNormal(0, 221)
+                    if Config.Controller.invertSwitchAxis then y = -y end
+
+                    if math.abs(y) >= Config.Controller.deadzone then
+                        if not stickYLatched then
+                            stickYLatched = true
+                            if y < 0 then up = true else down = true end
+                        end
+                    else
+                        stickYLatched = false
+                    end
+                end
+
+                if up then
+                    odEngage(false)
+                elseif down then
+                    odDisengage(true)
+                end
+            else
+                stickYLatched = false
+
+                if Config.MuteOnDownWhileOpen and IsDisabledControlJustPressed(0, 173) then
+                    toggleMute()
+                end
             end
 
             -- navigation
@@ -268,9 +477,9 @@ CreateThread(function()
                 else
                     stickLatched = false
                     if IsDisabledControlJustPressed(0, 175) then dir = 1
-                    elseif IsDisabledControlJustPressed(0, 172) then dir = -1 end
+                    elseif not onSwitch and IsDisabledControlJustPressed(0, 172) then dir = -1 end
                     if IsDisabledControlPressed(0, 175) then held = 1
-                    elseif IsDisabledControlPressed(0, 172) then held = -1 end
+                    elseif not onSwitch and IsDisabledControlPressed(0, 172) then held = -1 end
                 end
             else
                 stickLatched = false
@@ -304,6 +513,8 @@ end)
 -- slow motion ----------------------------------------------------------------
 -- Kept in its own thread so the easing is smooth and so it can be switched off
 -- entirely (Config.TimeScale = 1.0) without touching the rest of the script.
+-- It follows `wheelOpen` only: the On Demand panel leaves the world at normal
+-- speed, because nobody should be typing a link in 0.075x time.
 
 CreateThread(function()
     if Config.TimeScale >= 1.0 then return end
@@ -370,25 +581,282 @@ CreateThread(function()
             end
         end
 
+        if popupOpen and currentVehicle() == 0 then closePanel() end
+
         Wait(500)
     end
 end)
+
+-- On Demand ------------------------------------------------------------------
+-- The server says what is playing and how far into it; this side only decides
+-- whether this player is close enough to hear it, and keeps xsound pointed at
+-- the vehicle. xsound itself handles the falloff and the silencing at range.
+
+local function odDestroy(netId)
+    if not OD.enabled then return end
+    local id = odSoundId(netId)
+    if exports['xsound']:soundExists(id) then
+        exports['xsound']:Destroy(id)
+    end
+end
+
+RegisterNetEvent('vi_radio:od:state', function(data)
+    if type(data) ~= 'table' or type(data.netId) ~= 'number' then return end
+    local netId = data.netId
+
+    -- `gone` is the switch going off. Anything else is the switch being on,
+    -- whether or not a track happens to be playing right now.
+    if data.gone then
+        odDestroy(netId)
+        odSessions[netId] = nil
+
+        if data.restore and netId == myNetId() then setStation(data.restore) end
+    else
+        local prev = odSessions[netId]
+        local sess = prev or { netId = netId }
+
+        -- A new token means a different track, which needs a fresh player.
+        if not prev or prev.token ~= data.token then sess.restart = true end
+
+        sess.playing  = data.playing and true or false
+        sess.token    = data.token
+        sess.url      = data.url
+        sess.title    = data.title
+        sess.artist   = data.artist
+        sess.duration = data.duration
+        sess.index    = data.index
+        sess.queue    = data.queue or {}
+        sess.paused   = data.paused or false
+        sess.position = data.position or 0.0
+        sess.recvAt   = GetGameTimer()
+
+        odSessions[netId] = sess
+    end
+
+    if netId == myNetId() then
+        pushState(false)
+        pushPanel()
+    end
+end)
+
+RegisterNetEvent('vi_radio:od:notify', function(message)
+    if popupOpen then
+        SendNUIMessage({ action = 'od', notice = message })
+    else
+        BeginTextCommandThefeedPost('STRING')
+        AddTextComponentSubstringPlayerName('~y~VI Radio~s~: ' .. tostring(message))
+        EndTextCommandThefeedPostTicker(false, true)
+    end
+end)
+
+CreateThread(function()
+    -- Far enough out that xsound's own caching (which silences and restores a
+    -- sound around its falloff radius) does the fine-grained work, and this
+    -- only decides whether a player exists at all.
+    local keepAlive = OD.distance + 60.0
+
+    -- OD.enabled is re-read every pass rather than once: the startup check
+    -- below can switch On Demand off after this thread has already begun.
+    while true do
+        local here = OD.enabled and GetEntityCoords(PlayerPedId()) or nil
+
+        for netId, sess in pairs(here and odSessions or {}) do
+            local id  = odSoundId(netId)
+            local veh = NetworkDoesNetworkIdExist(netId) and NetToVeh(netId) or 0
+            local pos = (veh ~= 0 and DoesEntityExist(veh)) and GetEntityCoords(veh) or nil
+            local audible = sess.playing and pos ~= nil and not odMuted
+                            and odVolume > 0.0 and #(pos - here) <= keepAlive
+
+            if audible then
+                local exists = exports['xsound']:soundExists(id)
+
+                if sess.restart or not exists then
+                    sess.restart = nil
+                    if exists then exports['xsound']:Destroy(id) end
+
+                    local token = sess.token
+                    exports['xsound']:PlayUrlPos(id, sess.url, odVolume, pos, false, {
+                        -- Seeking before the player has loaded does nothing, so
+                        -- the catch-up happens once it reports it is playing.
+                        onPlayStart = function()
+                            local live = odSessions[netId]
+                            if not live or live.token ~= token then return end
+                            exports['xsound']:setTimeStamp(id, odElapsed(live))
+                            if live.paused then exports['xsound']:Pause(id) end
+
+                            local duration = exports['xsound']:getMaxDuration(id)
+                            if duration and duration > 0 and not live.duration then
+                                TriggerServerEvent('vi_radio:od:duration', netId, token, duration + 0.0)
+                            end
+                        end,
+                    })
+                    exports['xsound']:Distance(id, OD.distance)
+                    exports['xsound']:destroyOnFinish(id, false)
+                else
+                    exports['xsound']:Position(id, pos)
+
+                    local paused = exports['xsound']:isPaused(id)
+                    if sess.paused and not paused then
+                        exports['xsound']:Pause(id)
+                    elseif not sess.paused and paused then
+                        exports['xsound']:Resume(id)
+                        exports['xsound']:setTimeStamp(id, odElapsed(sess))
+                    end
+
+                    if not sess.paused then
+                        local at = exports['xsound']:getTimeStamp(id)
+                        if at and at >= 0 and math.abs(at - odElapsed(sess)) > OD.resyncDrift then
+                            exports['xsound']:setTimeStamp(id, odElapsed(sess))
+                        end
+                    end
+
+                    if not sess.duration then
+                        local duration = exports['xsound']:getMaxDuration(id)
+                        if duration and duration > 0 then
+                            TriggerServerEvent('vi_radio:od:duration', netId, sess.token, duration + 0.0)
+                        end
+                    end
+                end
+            else
+                odDestroy(netId)
+            end
+        end
+
+        Wait(OD.syncInterval)
+    end
+end)
+
+-- panel callbacks ------------------------------------------------------------
+
+RegisterNUICallback('odClose', function(_, cb)
+    closePanel()
+    cb('ok')
+end)
+
+RegisterNUICallback('odAdd', function(data, cb)
+    local url, err = Config.NormalizeUrl(data and data.url)
+    if not url then
+        cb({ ok = false, error = err })
+        return
+    end
+    TriggerServerEvent('vi_radio:od:add', url, data.playNow and true or false)
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('odRemove', function(data, cb)
+    if data and type(data.index) == 'number' then
+        TriggerServerEvent('vi_radio:od:remove', data.index)
+    end
+    cb('ok')
+end)
+
+RegisterNUICallback('odSkip', function(data, cb)
+    TriggerServerEvent('vi_radio:od:skip', (data and data.dir == -1) and -1 or 1)
+    cb('ok')
+end)
+
+RegisterNUICallback('odPause', function(_, cb)
+    TriggerServerEvent('vi_radio:od:pause')
+    cb('ok')
+end)
+
+RegisterNUICallback('odStop', function(_, cb)
+    TriggerServerEvent('vi_radio:od:stop')
+    cb('ok')
+end)
+
+RegisterNUICallback('odDisengage', function(_, cb)
+    odDisengage(true)
+    cb('ok')
+end)
+
+-- Volume and mute are per listener and never leave this client. They are the
+-- one protection that does not restrict who may play something: anyone can
+-- broadcast, but nobody has to listen at a volume they did not choose.
+local function setOdVolume(value)
+    value = math.max(0, math.min(OD.maxVolume, tonumber(value) or 0))
+    odVolume = value / 100
+    SetResourceKvp('vi_radio:od_volume', tostring(value))
+
+    for netId in pairs(odSessions) do
+        local id = odSoundId(netId)
+        if exports['xsound']:soundExists(id) then
+            exports['xsound']:setVolumeMax(id, odVolume)
+        end
+    end
+end
+
+RegisterNUICallback('odVolume', function(data, cb)
+    setOdVolume(data and data.volume)
+    pushPanel()
+    cb('ok')
+end)
+
+RegisterNUICallback('odMute', function(data, cb)
+    odMuted = data and data.muted and true or false
+    SetResourceKvp('vi_radio:od_muted', odMuted and '1' or '0')
+    if odMuted then
+        for netId in pairs(odSessions) do odDestroy(netId) end
+    end
+    pushPanel()
+    cb('ok')
+end)
+
+-- commands -------------------------------------------------------------------
+
+RegisterCommand('ondemand', function(_, args)
+    if not OD.enabled then return end
+    if currentVehicle() == 0 then
+        TriggerEvent('vi_radio:od:notify', 'You have to be in a vehicle')
+        return
+    end
+
+    if args[1] then
+        local url, err = Config.NormalizeUrl(table.concat(args, ' '))
+        if not url then
+            TriggerEvent('vi_radio:od:notify', err)
+            return
+        end
+        if not odSessionHere() then setStation('OFF') end
+        TriggerServerEvent('vi_radio:od:add', url, false)
+        return
+    end
+
+    -- With the switch already on this just reopens the panel; with it off it
+    -- flips it on, which opens the panel anyway.
+    if odSessionHere() then openPanel() else odEngage(true) end
+end, false)
 
 -- debug ----------------------------------------------------------------------
 -- /viradio_debug prints why the wheel is or is not responding.
 
 RegisterCommand('viradio_debug', function()
     local ok, kbm = pcall(function() return IsUsingKeyboardAndMouse(2) end)
-    print(('[vi_radio] inVehicle=%s seatAllowed=%s stations=%d open=%s viaControl=%s keyHeld=%s ctrl85=%s keyboardAndMouse=%s muted=%s'):format(
+    print(('[vi_radio] inVehicle=%s seatAllowed=%s stations=%d open=%s panel=%s viaControl=%s keyHeld=%s ctrl85=%s keyboardAndMouse=%s muted=%s'):format(
         tostring(IsPedInAnyVehicle(PlayerPedId(), false)),
         tostring(currentVehicle() ~= 0),
         #stations,
         tostring(wheelOpen),
+        tostring(popupOpen),
         tostring(openedByControl),
         tostring(keyHeld),
         tostring(IsDisabledControlPressed(0, 85)),
         ok and tostring(kbm) or 'n/a',
         tostring(muted)))
+
+    local sessionCount = 0
+    for netId, sess in pairs(odSessions) do
+        sessionCount = sessionCount + 1
+        print(('[vi_radio] on demand netId=%d track=%s at=%.1fs paused=%s queue=%d sound=%s'):format(
+            netId,
+            tostring(sess.title),
+            odElapsed(sess),
+            tostring(sess.paused),
+            #(sess.queue or {}),
+            tostring(OD.enabled and exports['xsound']:soundExists(odSoundId(netId)))))
+    end
+    print(('[vi_radio] on demand sessions=%d volume=%.2f localMute=%s'):format(
+        sessionCount, odVolume, tostring(odMuted)))
 end, false)
 
 -- exports --------------------------------------------------------------------
@@ -413,7 +881,25 @@ exports('SetMuted', function(state)
     applyMute()
     pushState(false)
 end)
-exports('GetStation', function() return GetPlayerRadioStationName() end)
+exports('GetStation', function()
+    if odSessionHere() then return ON_DEMAND end
+    return GetPlayerRadioStationName()
+end)
+
+exports('IsOnDemandOn', function() return odSessionHere() ~= nil end)
+exports('IsOnDemandPlaying', function()
+    local sess = odSessionHere()
+    return sess ~= nil and sess.playing == true
+end)
+exports('SetOnDemand', function(on)
+    if on then odEngage(false) else odDisengage(true) end
+end)
+exports('GetOnDemandTrack', function()
+    local sess = odSessionHere()
+    if not sess then return nil end
+    return { title = sess.title, artist = sess.artist, paused = sess.paused, position = odElapsed(sess) }
+end)
+exports('OpenOnDemand', openPanel)
 
 -- cleanup --------------------------------------------------------------------
 
@@ -422,14 +908,31 @@ AddEventHandler('onResourceStop', function(name)
     SetTimeScale(1.0)
     ClearTimecycleModifier()
     DisplayRadar(true)
+    SetNuiFocus(false, false)
     if muted then
         muted = false
         applyMute()
     end
+    for netId in pairs(odSessions) do odDestroy(netId) end
 end)
 
 CreateThread(function()
+    -- On Demand is the only part of this resource that needs anything else
+    -- installed. Without xsound it switches itself off rather than erroring on
+    -- every export call; the radio wheel carries on working.
+    if OD.enabled and GetResourceState('xsound') ~= 'started' then
+        OD.enabled = false
+        print('[vi_radio] xsound is not started, On Demand is disabled')
+    end
+
+    local storedVolume = GetResourceKvpString('vi_radio:od_volume')
+    if storedVolume then
+        odVolume = math.max(0, math.min(OD.maxVolume, tonumber(storedVolume) or OD.volume)) / 100
+    end
+    odMuted = GetResourceKvpString('vi_radio:od_muted') == '1'
+
     while not NetworkIsSessionStarted() do Wait(250) end
     buildStations()
     pushState(true)
+    if OD.enabled then TriggerServerEvent('vi_radio:od:sync') end
 end)

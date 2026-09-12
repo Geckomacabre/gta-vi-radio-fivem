@@ -251,3 +251,293 @@ html, body {
 }
 
 #title:empty, #artist:empty { display: none; }
+
+/* --- On Demand panel ------------------------------------------------------ */
+/* Sized off the same --s scale as the HUD so it matches at any resolution.
+   Unlike the HUD this takes NUI focus, so it is the only part of the page that
+   is ever allowed pointer events. */
+
+#od {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    /* Pushed below the HUD rather than centred on it: the carousel stays
+       readable above the panel instead of being sliced in half by it. */
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: calc(300px * var(--s));
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 1;
+    transition: opacity 140ms ease;
+}
+
+#od.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+#od-panel {
+    width: calc(620px * var(--s));
+    max-height: calc(700px * var(--s));
+    display: flex;
+    flex-direction: column;
+    gap: calc(14px * var(--s));
+    padding: calc(26px * var(--s)) calc(28px * var(--s)) calc(22px * var(--s));
+    background: rgba(12, 12, 14, 0.94);
+    border: calc(var(--border) * var(--s)) solid var(--outline-active);
+    color: #fff;
+    font-family: system-ui, 'Segoe UI', Arial, sans-serif;
+    font-size: calc(15px * var(--s));
+}
+
+#od-head {
+    display: flex;
+    align-items: center;
+    gap: calc(14px * var(--s));
+}
+
+#od-head h1 { margin-right: auto; }
+
+/* The switch is the panel's statement of what On Demand currently is: on.
+   Clicking it is how you turn it off without going back to the wheel. */
+#od button.switch {
+    display: flex;
+    align-items: center;
+    gap: calc(9px * var(--s));
+    padding: calc(6px * var(--s)) calc(10px * var(--s)) calc(6px * var(--s)) calc(6px * var(--s));
+    background: none;
+    border-color: var(--outline);
+}
+
+.switch-track {
+    position: relative;
+    width: calc(40px * var(--s));
+    height: calc(20px * var(--s));
+    border-radius: calc(10px * var(--s));
+    background: rgba(255, 255, 255, 0.16);
+    transition: background 140ms ease;
+}
+
+.switch-knob {
+    position: absolute;
+    top: calc(3px * var(--s));
+    left: calc(3px * var(--s));
+    width: calc(14px * var(--s));
+    height: calc(14px * var(--s));
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.5);
+    transition: transform 140ms cubic-bezier(0.22, 0.61, 0.36, 1), background 140ms ease;
+}
+
+.switch-state {
+    min-width: calc(30px * var(--s));
+    text-align: left;
+    opacity: 0.55;
+}
+
+#od button.switch[aria-checked="true"] .switch-track { background: var(--muted-color); }
+#od button.switch[aria-checked="true"] .switch-knob {
+    background: #fff;
+    transform: translateX(calc(20px * var(--s)));
+}
+#od button.switch[aria-checked="true"] .switch-state { opacity: 1; }
+
+#od-head h1 {
+    font-family: 'Anton', Impact, sans-serif;
+    font-size: calc(38px * var(--s));
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-weight: normal;
+}
+
+#od-now {
+    padding: calc(14px * var(--s)) calc(16px * var(--s));
+    background: var(--box);
+    border-left: calc(4px * var(--s)) solid var(--muted-color);
+}
+
+#od-now-title {
+    font-family: 'Anton', Impact, sans-serif;
+    font-size: calc(22px * var(--s));
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#od-now-artist {
+    margin-top: calc(2px * var(--s));
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#od-now-artist:empty { display: none; }
+
+#od-transport {
+    display: flex;
+    gap: calc(8px * var(--s));
+    margin-top: calc(12px * var(--s));
+}
+
+#od-form {
+    display: flex;
+    gap: calc(8px * var(--s));
+}
+
+#od-url {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: calc(10px * var(--s)) calc(12px * var(--s));
+    background: rgba(255, 255, 255, 0.07);
+    border: calc(2px * var(--s)) solid var(--outline);
+    color: #fff;
+    font: inherit;
+    outline: none;
+}
+
+#od-url:focus { border-color: var(--outline-active); }
+#od-url::placeholder { color: rgba(255, 255, 255, 0.35); }
+
+#od button {
+    padding: calc(10px * var(--s)) calc(14px * var(--s));
+    background: rgba(255, 255, 255, 0.09);
+    border: calc(2px * var(--s)) solid var(--outline);
+    color: #fff;
+    font: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+    white-space: nowrap;
+}
+
+#od button:hover { background: rgba(255, 255, 255, 0.18); border-color: var(--outline-active); }
+#od button.primary { background: #fff; color: #111; border-color: #fff; }
+#od button.primary:hover { background: rgba(255, 255, 255, 0.85); }
+#od button.danger:hover { background: var(--muted-color); border-color: var(--muted-color); }
+#od button.ghost { background: none; border: none; opacity: 0.6; padding: 0; }
+#od button.ghost:hover { opacity: 1; background: none; }
+#od button:disabled { opacity: 0.3; cursor: default; }
+#od button:disabled:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--outline); }
+
+#od-notice {
+    min-height: calc(18px * var(--s));
+    font-size: calc(14px * var(--s));
+    color: var(--muted-color);
+}
+
+#od-notice.ok { color: rgba(255, 255, 255, 0.65); }
+
+#od-queue-head {
+    display: flex;
+    justify-content: space-between;
+    padding-bottom: calc(6px * var(--s));
+    border-bottom: calc(2px * var(--s)) solid var(--outline);
+    font-family: 'Anton', Impact, sans-serif;
+    font-size: calc(16px * var(--s));
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.8;
+}
+
+#od-queue {
+    list-style: none;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: calc(60px * var(--s));
+    max-height: calc(240px * var(--s));
+}
+
+#od-queue li {
+    display: flex;
+    align-items: center;
+    gap: calc(10px * var(--s));
+    padding: calc(9px * var(--s)) calc(4px * var(--s));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#od-queue li.playing { background: rgba(255, 255, 255, 0.07); }
+
+#od-queue .pos {
+    width: calc(26px * var(--s));
+    opacity: 0.45;
+    font-variant-numeric: tabular-nums;
+}
+
+#od-queue li.playing .pos { opacity: 1; color: var(--muted-color); }
+
+#od-queue .name {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#od-queue .by {
+    opacity: 0.45;
+    font-size: calc(13px * var(--s));
+    white-space: nowrap;
+}
+
+#od-queue .empty {
+    padding: calc(14px * var(--s)) calc(4px * var(--s));
+    opacity: 0.4;
+    border: none;
+}
+
+#od-queue button {
+    padding: calc(4px * var(--s)) calc(9px * var(--s));
+    font-size: calc(13px * var(--s));
+}
+
+#od-foot {
+    display: flex;
+    align-items: center;
+    gap: calc(18px * var(--s));
+    padding-top: calc(12px * var(--s));
+    border-top: calc(2px * var(--s)) solid var(--outline);
+    font-size: calc(14px * var(--s));
+}
+
+#od-foot label { display: flex; align-items: center; gap: calc(8px * var(--s)); cursor: pointer; }
+#od-foot .od-volume span:first-child { opacity: 0.6; white-space: nowrap; }
+#od-foot .od-check span { opacity: 0.6; white-space: nowrap; }
+#od-foot .od-hint { margin-left: auto; opacity: 0.35; white-space: nowrap; }
+
+#od-volume { width: calc(120px * var(--s)); accent-color: #fff; }
+#od-volume-value { width: calc(42px * var(--s)); font-variant-numeric: tabular-nums; opacity: 0.8; }
+#od-mute { accent-color: var(--muted-color); width: calc(15px * var(--s)); height: calc(15px * var(--s)); }
+
+/* The HUD is never selectable, but the link field has to be. */
+#od-url { user-select: text; }
+
+/* The On Demand tile is a switch, so the tile has to say which way it is set --
+   a station tile is either highlighted or not, but a switch that looks the same
+   on and off is not a switch. */
+.tile .od-badge {
+    position: absolute;
+    left: 50%;
+    bottom: calc(5px * var(--s));
+    transform: translateX(-50%);
+    padding: calc(1px * var(--s)) calc(7px * var(--s));
+    font-family: 'Anton', Impact, sans-serif;
+    font-size: calc(11px * var(--s));
+    letter-spacing: 0.08em;
+    line-height: 1.35;
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+#radio.od-on .tile .od-badge {
+    color: #fff;
+    background: var(--muted-color);
+    border-color: var(--muted-color);
+}
+
+#radio.od-on .tile.od-tile img { opacity: 1; }
+.tile.od-tile img { opacity: 0.55; transition: opacity var(--slide) ease; }
