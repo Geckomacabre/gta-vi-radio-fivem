@@ -53,6 +53,9 @@
         s.setProperty('--side-gap', px(cfg.sideGap));
         s.setProperty('--left-icon-h', px(cfg.leftIconHeight));
         s.setProperty('--right-icon-h', px(cfg.rightIconHeight));
+        s.setProperty('--mute-color', rgba(cfg.muteColor, '#ffffff'));
+        s.setProperty('--muted-color', rgba(cfg.mutedColor, '#ff3b30'));
+        radio.classList.toggle('dim-off', cfg.muteDim === false);
         s.setProperty('--line-y', px(cfg.infoLineY));
         s.setProperty('--line-w', px(cfg.infoLineWidth));
         s.setProperty('--line-h', px(cfg.infoLineHeight));
@@ -94,6 +97,29 @@
         });
     }
 
+    // Paints a white glyph PNG as a mask so it can be tinted. A div has no
+    // intrinsic size, so the aspect ratio is read off the file once and cached.
+    var ratioCache = {};
+
+    function setMaskIcon(el, src) {
+        if (!src) return;
+        el.style.webkitMaskImage = 'url("' + src + '")';
+        el.style.maskImage = 'url("' + src + '")';
+
+        if (ratioCache[src]) {
+            el.style.aspectRatio = ratioCache[src];
+            return;
+        }
+
+        var probe = new Image();
+        probe.onload = function () {
+            if (!probe.naturalHeight) return;
+            ratioCache[src] = probe.naturalWidth + ' / ' + probe.naturalHeight;
+            el.style.aspectRatio = ratioCache[src];
+        };
+        probe.src = src;
+    }
+
     function fallbackNode(label) {
         var span = document.createElement('span');
         span.className = 'fallback';
@@ -116,7 +142,7 @@
         elStat.textContent = station ? station.label : '';
 
         radio.classList.toggle('muted', muted);
-        if (hud) iconR.src = muted ? hud.unmuteIcon : hud.rightIcon;
+        if (hud) setMaskIcon(iconR, muted ? hud.unmuteIcon : hud.rightIcon);
     }
 
     function renderNowPlaying(title, artist) {

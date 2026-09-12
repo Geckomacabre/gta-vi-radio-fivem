@@ -32,6 +32,8 @@ html, body {
     --side-gap: 37px;
     --left-icon-h: 55px;
     --right-icon-h: 24px;
+    --mute-color: #ffffff;
+    --muted-color: #ff3b30;
     --line-y: 24px;
     --line-w: 189px;
     --line-h: 6.5px;
@@ -160,7 +162,40 @@ html, body {
     height: calc(var(--right-icon-h) * var(--s));
 }
 
-#radio.muted #icon-right { opacity: 1; }
+/* The mute icon is a pure white glyph, so it is drawn as a mask filled with a
+   colour rather than an <img>. That is the only way to recolour it exactly -
+   a CSS filter cannot turn white into an arbitrary hue. */
+.mask-icon {
+    width: auto;
+    background-color: var(--mute-color);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    transition: background-color 140ms ease;
+}
+
+/* Muted: everything except the indicator drains of colour, and the indicator
+   goes red. The filter cannot live on #carousel because filters apply to
+   descendants too - it would drag the indicator down with it. */
+#radio.muted #viewport,
+#radio.muted #icon-left,
+#radio.muted #info {
+    filter: grayscale(1) brightness(0.62);
+}
+
+#radio.muted #icon-right {
+    opacity: 1;
+    background-color: var(--muted-color);
+}
+
+#radio.dim-off #viewport,
+#radio.dim-off #icon-left,
+#radio.dim-off #info {
+    filter: none;
+}
 
 /* --- info block ---------------------------------------------------------- */
 

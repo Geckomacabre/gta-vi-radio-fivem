@@ -79,6 +79,11 @@ Everything lives in `config.lua`, mirroring the original mod's `VI Radio.ini`:
   the player's resolution.
 * **Stations** — display label, logo and genre per station.
 
+When the radio is muted the indicator turns red (`Config.Hud.mutedColor`) and
+the rest of the HUD drops to greyscale, so the two states cannot be mistaken for
+each other at a glance. Set `Config.Hud.muteDim = false` to keep the colour and
+recolour only the indicator.
+
 ## Adding or hiding stations
 
 `Config.Stations` maps a game station name to its display label, logo file and
