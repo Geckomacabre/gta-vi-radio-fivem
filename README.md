@@ -6,6 +6,10 @@ effect while you browse stations.
 
 Standalone and client-side — no framework dependency.
 
+![The radio wheel open in a vehicle](docs/radio.png)
+
+![The same wheel with the radio muted](docs/radiomuted.png)
+
 ## Install
 
 1. Copy the `vi_radio` folder into your server's `resources/` directory.
